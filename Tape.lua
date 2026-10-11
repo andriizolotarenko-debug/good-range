@@ -31,11 +31,13 @@ Tape.FONTS = {
 }
 
 -- Where the digits sit inside a line of text, as parts of the string height: below the baseline
--- (descender) and the digit height. Measured from Changa Bold; a rough guess for the others.
+-- (descender) and the digit height. Changa's baseline comes from its font file; its digit height
+-- was measured on screen in game (the file's own numbers come out far too small). A rough guess
+-- for the other fonts.
 local METRICS = {
-  [MEDIA .. "Changa-Bold.ttf"] = { desc = 613 / 1840, digit = 640 / 1840 },
+  [MEDIA .. "Changa-Bold.ttf"] = { desc = 613 / 1840, digit = 0.86 },
 }
-local DEFAULT_METRICS = { desc = 0.22, digit = 0.6 }
+local DEFAULT_METRICS = { desc = 0.22, digit = 0.72 }
 
 Tape.LABELS = { melee = "MELEE", work = "RANGED", dead = "DEAD ZONE", far = "OUT OF RANGE" }
 
@@ -94,9 +96,13 @@ function Tape.New(parent)
   self.badgeText = self.badge:CreateFontString(nil, "OVERLAY")
   self.badgeText:SetPoint("CENTER", 0, 0)
 
-  -- needle: head, stretched stem and tip, all sliced from one texture
+  -- needle: head, stretched stem and tip, all sliced from one texture, on its own frame above
+  -- the ruler (a child frame draws over its parent's textures whatever their layer)
+  self.needle = CreateFrame("Frame", nil, self.area)
+  self.needle:SetAllPoints(self.area)
+  self.needle:SetFrameLevel(self.ruler:GetFrameLevel() + 5)
   local function needlePart(top, bottom)
-    local t = self.area:CreateTexture(nil, "OVERLAY", nil, 7)
+    local t = self.needle:CreateTexture(nil, "OVERLAY", nil, 7)
     t:SetTexture(MEDIA .. "needle")
     t:SetTexCoord(0, 1, top / 16, bottom / 16)
     return t
@@ -158,29 +164,40 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   local desc = math.floor(h * m.desc + 0.5)          -- box bottom -> digit baseline
   local digitH = math.max(6, math.floor(h * m.digit + 0.5))
 
-  -- the number is centred on its own digits; "yd" hangs off its right side, the badge its left
+  -- badge: as tall as the digits; one width for every label (the longest), so nothing shifts
+  self.badge:SetHeight(digitH)
+  self.capL:SetWidth(digitH / 2)
+  self.capR:SetWidth(digitH / 2)
+  setFont(self.badgeText, font, math.max(7, math.floor(digitH * 0.5 + 0.5)), "")
+  self.badgeText:SetTextColor(0.06, 0.06, 0.07)
+  local longest = 0
+  for _, text in pairs(Tape.LABELS) do
+    self.badgeText:SetText(text)
+    longest = math.max(longest, self.badgeText:GetStringWidth() or 0)
+  end
+  local badgeW = math.floor(longest + digitH * 0.9 + 0.5)
+  self.badge:SetWidth(badgeW)
+
   self.number:ClearAllPoints()
+  self.unit:ClearAllPoints()
+  self.badge:ClearAllPoints()
   if self.showTape then
+    -- tape: the number is centred on its own digits over the needle; "yd" hangs off its right
+    self.number:SetJustifyH("CENTER")
     self.root:SetSize(width, height + digitH + 4)
     self.number:SetPoint("BOTTOM", self.area, "TOP", 0, 3 - desc)
   else
-    self.root:SetSize(math.max(width, fontSize * 3), digitH + 4)
-    self.number:SetPoint("BOTTOM", self.root, "BOTTOM", 0, 2 - desc)
+    -- label: [ badge ] [ number, right-aligned in a two-digit slot ] yd -- all fixed in place
+    local gap = math.floor(fontSize * 0.25 + 0.5)
+    self.number:SetText("88")
+    local slot = self.number:GetStringWidth() or fontSize
+    local unitW = self.unit:GetStringWidth() or fontSize * 0.6
+    self.number:SetJustifyH("RIGHT")
+    self.root:SetSize(badgeW + gap + slot + 2 + unitW, digitH + 4)
+    self.badge:SetPoint("BOTTOMLEFT", self.root, "BOTTOMLEFT", 0, 2)
+    self.number:SetPoint("BOTTOMRIGHT", self.root, "BOTTOMLEFT", badgeW + gap + slot, 2 - desc)
   end
-  self.unit:ClearAllPoints()
   self.unit:SetPoint("BOTTOMLEFT", self.number, "BOTTOMRIGHT", 2, math.floor(fontSize * 0.08 + 0.5))
-
-  -- badge: as tall as the digits, standing on their baseline
-  self.badge:ClearAllPoints()
-  self.badge:SetPoint("BOTTOMRIGHT", self.number, "BOTTOMLEFT", -math.floor(fontSize * 0.25 + 0.5), desc)
-  self.badge:SetHeight(digitH)
-  self.badgeH = digitH
-  self.capL:SetWidth(digitH / 2)
-  self.capR:SetWidth(digitH / 2)
-  local textSize = math.max(7, math.floor(digitH * 0.6 + 0.5))
-  setFont(self.badgeText, font, textSize, "")
-  self.badgeText:SetTextColor(0.06, 0.06, 0.07)
-  self.badgePad = math.floor(digitH * 0.45 + 0.5)
 
   -- backing plate: darkest at the ruler's bottom edge, clear at the top and to the sides
   local sw = width / SLICES
@@ -280,7 +297,6 @@ function Tape:Draw(v, label)
     if not self.showTape then
       self.badgeText:SetText(Tape.LABELS[zone])
       for _, t in ipairs({ self.capL, self.mid, self.capR }) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
-      self.badge:SetWidth(math.max(self.badgeH, self.badgeText:GetStringWidth() + self.badgePad * 2))
     end
   end
 end
