@@ -65,7 +65,7 @@ end
 local function build()
   local db = ns.db
   win = CreateFrame("Frame", "RangeProbeOptions", UIParent, "DefaultPanelFlatTemplate")
-  win:SetSize(W, 498)
+  win:SetSize(W, 600)
   win:SetFrameStrata("DIALOG")
   win:SetToplevel(true)
   win:SetClampedToScreen(true)
@@ -108,13 +108,13 @@ local function build()
   reset:SetScript("OnClick", function() ns.ResetPosition() end)
 
   y = y - 36
-  controls[#controls + 1] = slider(win, "Width", y, "width", 80, 1000, 10)
+  controls[#controls + 1] = slider(win, "Width", y, "width", 100, 1000, 10)
   y = y - 44
-  controls[#controls + 1] = slider(win, "Height", y, "height", 12, 160, 1)
+  controls[#controls + 1] = slider(win, "Height", y, "height", 20, 160, 1)
   y = y - 44
-  controls[#controls + 1] = slider(win, "Font size", y, "fontSize", 12, 48, 1)
+  controls[#controls + 1] = slider(win, "Font size", y, "fontSize", 20, 96, 1)
   y = y - 44
-  controls[#controls + 1] = slider(win, "Scale (pixels per yard)", y, "ppy", 20, 100, 1)
+  controls[#controls + 1] = slider(win, "Scale (pixels per yard)", y, "ppy", 15, 100, 1)
 
   -- font: step through the list with arrows
   y = y - 48
@@ -140,10 +140,24 @@ local function build()
   controls[#controls + 1] = { Refresh = function() fontText:SetText(fontName(db.font)) end }
 
   y = y - 50
-  controls[#controls + 1] = checkbox(win, "Zone strip", 12, y,
+  controls[#controls + 1] = checkbox(win, "Range tape", 12, y,
+    function() return db.tape end, function(v) db.tape = v; ns.ApplyLayout() end,
+    "Off: no ruler; the distance gets a Melee / Ranged / Dead Zone badge instead.")
+  controls[#controls + 1] = checkbox(win, "Zone strip", 150, y,
     function() return db.strip end, function(v) db.strip = v; ns.ApplyLayout() end)
-  controls[#controls + 1] = checkbox(win, "Metres", 150, y,
-    function() return db.meters end, function(v) db.meters = v; ns.ApplyLayout() end)
+
+  y = y - 34
+  label(win, "Show", 16, y, "GameFontNormalSmall")
+  y = y - 16
+  local function shownWhen(text, key, x, yy)
+    controls[#controls + 1] = checkbox(win, text, x, yy,
+      function() return db[key] end, function(v) db[key] = v; ns.RefreshShown() end)
+  end
+  shownWhen("In combat", "inCombat", 12, y)
+  shownWhen("Out of combat", "outOfCombat", 150, y)
+  y = y - 26
+  shownWhen("Enemy target", "enemy", 12, y)
+  shownWhen("Friendly target", "friendly", 150, y)
 
   y = y - 36
   label(win, "Testing", 16, y, "GameFontNormalSmall")
@@ -155,10 +169,6 @@ local function build()
   controls[#controls + 1] = checkbox(win, "Log crossings to chat", 12, y,
     function() return db.log end, function(v) db.log = v end,
     "Each time the target crosses a range step, print how far off A and B were.")
-  y = y - 26
-  controls[#controls + 1] = checkbox(win, "Ignore own position", 12, y,
-    function() return db.noPos end, function(v) db.noPos = v; ns.OnNoPosChanged() end,
-    "Estimate as in a dungeon, where the game hides your position. Clears the stats.")
 
   win:SetScript("OnShow", function()
     for _, c in ipairs(controls) do c:Refresh() end

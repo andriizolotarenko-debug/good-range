@@ -1,17 +1,22 @@
--- Range Probe: distance to the target from range checks, shown on a sliding range tape.
--- The tape's colours come from your spellbook: blue melee, green shoot / cast / heal, grey dead.
--- Optional detail lines show the raw bracket, estimates A and B and the true distance.
+-- Range Probe: distance to the target from range checks, shown on a sliding range tape
+-- (or as a number with a Melee / Ranged / Dead Zone badge). Colours come from your class zones:
+-- blue melee, green shoot / cast / heal, grey dead. Optional detail lines show the raw bracket,
+-- estimates A and B and the true distance.
 local _, ns = ...
 
 local issecret = issecretvalue or function() return false end
 local TICK = 0.05
-local YD_TO_M = 0.9144
-local MELEE = 5
+local MELEE = ns.Zones.MELEE
+
+-- Classic Era and WoW: Forever (interface 1xxxx) use their own range items.
+local interface = select(4, GetBuildInfo())
+local CLASSIC_RULES = interface < 20000
 
 ns.DEFAULTS = {
-  width = 224, height = 32, fontSize = 24, ppy = 46, strip = true,
+  width = 130, height = 31, fontSize = 32, ppy = 20, strip = true, tape = true,
   font = "Interface\\AddOns\\RangeProbe\\media\\Changa-Bold.ttf",
-  unlocked = false, details = false, log = false, noPos = false, meters = false,
+  inCombat = true, outOfCombat = true, friendly = true, enemy = true,
+  unlocked = false, details = false, log = false,
 }
 
 local db
@@ -63,39 +68,27 @@ local function spellbookSpells()
   return out
 end
 
--- Sorted, merged copy of { {a, b}, ... }.
-local function merge(list)
-  table.sort(list, function(x, y) return x[1] < y[1] end)
-  local out = {}
-  for _, r in ipairs(list) do
-    local top = out[#out]
-    if top and r[1] <= top[2] then
-      if r[2] > top[2] then top[2] = r[2] end
-    else
-      out[#out + 1] = { r[1], r[2] }
-    end
-  end
-  return out
-end
-
 local INTERACT = { [3] = 8, [4] = 28 }
 local INTERACT_RACE = { Tauren = { [3] = 6, [4] = 25 }, Scourge = { [3] = 7, [4] = 27 } }
 
 local function build()
   wipe(groups)
-  for range, ids in pairs(ns.HARM_ITEMS) do group(range).harmItem = pickItem(ids) end
-  for range, ids in pairs(ns.FRIEND_ITEMS) do group(range).friendItem = pickItem(ids) end
+  local harmItems = CLASSIC_RULES and ns.ERA_HARM_ITEMS or ns.HARM_ITEMS
+  local friendItems = CLASSIC_RULES and ns.ERA_FRIEND_ITEMS or ns.FRIEND_ITEMS
+  for range, ids in pairs(harmItems) do group(range).harmItem = pickItem(ids) end
+  for range, ids in pairs(friendItems) do group(range).friendItem = pickItem(ids) end
   local _, race = UnitRace("player")
   for index, range in pairs(INTERACT_RACE[race] or INTERACT) do group(range).interact = index end
 
-  local harmWork, helpWork = {}, {}
+  local harmWork, helpWork, known = {}, {}, {}
   for _, id in ipairs(spellbookSpells()) do
     local info = C_Spell.GetSpellInfo(id)
     if info then
+      known[info.name] = id
       local min, max = info.minRange or 0, info.maxRange or 0
       -- A spell with a minimum range says "false" up close too, so it can't bound the bracket.
       if max > 0 and min == 0 then table.insert(group(max).spells, id) end
-      -- Zones: what reaches beyond melee. Melee itself is always marked (see zoneAt).
+      -- Fallback zones for classes / clients the list in Zones.lua does not cover.
       local harmful, helpful = C_Spell.IsSpellHarmful(id), C_Spell.IsSpellHelpful(id)
       if harmful and max > MELEE then
         harmWork[#harmWork + 1] = { min, max }
@@ -104,8 +97,11 @@ local function build()
       end
     end
   end
-  zones.harm = merge(harmWork)
-  zones.help = merge(helpWork)
+  -- Zones: your class's key abilities at the ranges the game reports for you.
+  local _, class = UnitClass("player")
+  local list = ns.Zones.CLASS[class] or {}
+  zones.harm = ns.Zones.fromList(list.harm, known, C_Spell.GetSpellInfo) or ns.Zones.merge(harmWork)
+  zones.help = ns.Zones.fromList(list.help, known, C_Spell.GetSpellInfo) or ns.Zones.merge(helpWork)
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -215,8 +211,8 @@ local function speedOf(unit)
   return v
 end
 
+-- Used when the game gives it (open world); in dungeons it is hidden and B works from rates.
 local function playerPos()
-  if db and db.noPos then return nil end   -- behave as in a dungeon
   local y, x = UnitPosition("player")
   if not y or issecret(y) or issecret(x) then return nil end
   return x, y
@@ -239,12 +235,7 @@ local hostileTarget = true
 
 -- d in yd. Melee always wins up close.
 local function zoneAt(d)
-  if d <= MELEE then return "melee" end
-  for _, r in ipairs(hostileTarget and zones.harm or zones.help) do
-    if d >= r[1] and d <= r[2] then return "work" end
-    if r[1] > d then break end
-  end
-  return "dead"
+  return ns.Zones.at(d, hostileTarget and zones.harm or zones.help)
 end
 
 -- UI ----------------------------------------------------------------------------------------
@@ -276,30 +267,22 @@ local function place()
   end
 end
 
-local function conv(v) return db.meters and v * YD_TO_M or v end
-
 local function fmt(v)
   if not v then return "?" end
-  return ("%.1f"):format(conv(v))
+  return ("%.1f"):format(v)
 end
 
 local function bracketText(lo, hi)
-  local unitName = db.meters and "m" or "yd"
-  if not hi then return (">%s %s"):format(fmt(lo), unitName) end
-  return ("%s-%s %s"):format(fmt(lo), fmt(hi), unitName)
+  if not hi then return (">%s yd"):format(fmt(lo)) end
+  return ("%s-%s yd"):format(fmt(lo), fmt(hi))
 end
 
--- the tape works in display units; zones are in yd
-local function displayZoneAt(d)
-  return zoneAt(db.meters and d / YD_TO_M or d)
-end
-tape:SetZones(displayZoneAt)
-function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
+tape:SetZones(zoneAt)
+function ns.OnZonesChanged() tape:SetZones(zoneAt) end
 
 function ns.ApplyLayout()
   if not db then return end
-  tape.unitName = db.meters and "m" or "yd"
-  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.strip, db.font)
+  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.strip, db.font, db.tape)
   tape:SetUnlocked(db.unlocked)
   line1:SetShown(db.details)
   line2:SetShown(db.details)
@@ -325,8 +308,7 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   if issecret(hostile) then hostile = true end
   if hostile ~= hostileTarget then
     hostileTarget = hostile
-    tape:SetZones(displayZoneAt)
-function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
+    tape:SetZones(zoneAt)
   end
 
   local lo, hi = measure(unit, hostile, clock)
@@ -338,10 +320,10 @@ function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
   local a, b = est:valueA(clock, lo, hi), est:valueB(lo, hi)
 
   if b then
-    goal = conv(b)
+    goal = b
     goalLabel = tostring(math.floor(goal))
   else
-    goal = conv(lo)
+    goal = lo
     goalLabel = math.floor(goal) .. "+"
   end
 
@@ -356,8 +338,8 @@ function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
   if c and db.log then
     if c.errA then
       say(("%s %s  A %s (err %.1f)  B %s (err %.1f)  mid err %s  speed %.1f"):format(
-        c.dir < 0 and "in" or "out", fmt(c.at), fmt(c.a), conv(c.errA), fmt(c.b), conv(c.errB),
-        c.mid and ("%.1f"):format(conv(math.abs(c.mid - c.at))) or "?", sp))
+        c.dir < 0 and "in" or "out", fmt(c.at), fmt(c.a), c.errA, fmt(c.b), c.errB,
+        c.mid and ("%.1f"):format(math.abs(c.mid - c.at)) or "?", sp))
     else
       say(("%s %s  (first crossing on this target)"):format(c.dir < 0 and "in" or "out", fmt(c.at)))
     end
@@ -368,7 +350,7 @@ end)
 root:SetScript("OnUpdate", function(_, elapsed)
   if not goal then
     if not db.unlocked then return end
-    goal, goalLabel = conv(21.4), tostring(math.floor(conv(21.4)))   -- sample while unlocked
+    goal, goalLabel = 21.4, "21"   -- sample while unlocked
   end
   if shown == goal then return end
   shown = shown and shown + (goal - shown) * math.min(1, elapsed * 14) or goal
@@ -376,8 +358,18 @@ root:SetScript("OnUpdate", function(_, elapsed)
   tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
 end)
 
+-- Shown for a living target, if the options allow it in this state (combat, target kind).
 function ns.RefreshShown()
   local has = UnitExists("target") and not UnitIsDeadOrGhost("target")
+  if has and db then
+    local fighting = UnitAffectingCombat("player")
+    local hostile = UnitCanAttack("player", "target")
+    if issecret(hostile) then hostile = true end
+    if fighting and not db.inCombat or not fighting and not db.outOfCombat
+        or hostile and not db.enemy or not hostile and not db.friendly then
+      has = false
+    end
+  end
   driver:SetShown(has)
   root:SetShown(has or (db and db.unlocked))
 end
@@ -390,9 +382,8 @@ local function printStats()
     say("no measured crossings yet. Run at a target until its bracket changes twice.")
     return
   end
-  say(("%d crossings. Mean error: middle of bracket %.2f, A %.2f, B %.2f %s. Worst: A %.1f, B %.1f.")
-    :format(s.n, conv(s.midn > 0 and s.mid / s.midn or 0), conv(s.a / s.n), conv(s.b / s.n),
-      db.meters and "m" or "yd", conv(s.amax), conv(s.bmax)))
+  say(("%d crossings. Mean error: middle of bracket %.2f, A %.2f, B %.2f yd. Worst: A %.1f, B %.1f.")
+    :format(s.n, s.midn > 0 and s.mid / s.midn or 0, s.a / s.n, s.b / s.n, s.amax, s.bmax))
 end
 
 local function zoneText(z)
@@ -438,11 +429,6 @@ function ns.ResetPosition()
   place()
 end
 
-function ns.OnNoPosChanged()
-  est:reset()
-  est:resetStats()
-end
-
 -- Events ------------------------------------------------------------------------------------
 
 local events = CreateFrame("Frame")
@@ -450,6 +436,8 @@ events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_TARGET_CHANGED")
 events:RegisterEvent("SPELLS_CHANGED")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+events:RegisterEvent("PLAYER_REGEN_DISABLED")
+events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
     RangeProbeDB = RangeProbeDB or {}
@@ -462,6 +450,12 @@ events:SetScript("OnEvent", function(_, event)
     if db.layoutVersion < 3 then
       db.font = nil   -- v3: Changa Bold by default
       db.layoutVersion = 3
+    end
+    if db.layoutVersion < 4 then
+      -- v4: Andrii's sizes as the defaults; metres and the position switch are gone
+      db.width, db.height, db.fontSize, db.ppy = nil, nil, nil, nil
+      db.meters, db.noPos = nil, nil
+      db.layoutVersion = 4
     end
     for k, v in pairs(ns.DEFAULTS) do
       if db[k] == nil then db[k] = v end
@@ -482,8 +476,10 @@ events:SetScript("OnEvent", function(_, event)
     if UnitExists("target") then
       local hostile = UnitCanAttack("player", "target")
       hostileTarget = issecret(hostile) or hostile
-      tape:SetZones(displayZoneAt)
+      tape:SetZones(zoneAt)
     end
+    ns.RefreshShown()
+  elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
     ns.RefreshShown()
   else
     rebuildSoon()

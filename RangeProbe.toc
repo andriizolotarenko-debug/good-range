@@ -1,10 +1,11 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Range Probe
-## Notes: Distance to your target on a sliding range tape, coloured by your melee, cast and dead zones.
-## Version: 0.2
+## Notes: Distance to your target on a sliding range tape, coloured by your melee, ranged and dead zones.
+## Version: 0.3
 ## SavedVariables: RangeProbeDB
 
 Items.lua
+Zones.lua
 Estimator.lua
 Tape.lua
 RangeProbe.lua

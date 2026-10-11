@@ -27,6 +27,8 @@ Tape.FONTS = {
 local SLICES = 28          -- backing plate columns (each a vertical gradient)
 local BASE_H = 40          -- design height; tick sizes scale with height / BASE_H
 
+Tape.LABELS = { melee = "Melee", work = "Ranged", dead = "Dead Zone" }
+
 Tape.COLORS = {
   melee = { 0.302, 0.659, 1 },
   work = { 0.373, 0.878, 0.416 },
@@ -64,6 +66,16 @@ function Tape.New(parent)
 
   self.number = root:CreateFontString(nil, "OVERLAY")
   self.unit = root:CreateFontString(nil, "OVERLAY")
+  self.unit:SetText("yd")
+
+  -- badge for the no-tape mode: the zone name in dark text on the zone colour
+  self.badge = CreateFrame("Frame", nil, root)
+  self.badgeBg = self.badge:CreateTexture(nil, "BACKGROUND")
+  self.badgeBg:SetAllPoints()
+  self.badgeBg:SetColorTexture(1, 1, 1, 1)
+  self.badgeText = self.badge:CreateFontString(nil, "OVERLAY")
+  self.badgeText:SetPoint("CENTER", 0, 0)
+  self.badgeText:SetTextColor(0.06, 0.06, 0.07)
 
   -- needle: head, stretched stem and tip, all sliced from one texture
   local function needlePart(top, bottom)
@@ -100,18 +112,39 @@ function Tape:SetZones(zoneAt)
   self.first = nil   -- restyle on the next draw
 end
 
-function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font)
+-- showTape false: no ruler, the number gets a Melee / Ranged / Dead Zone badge instead.
+function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font, showTape)
   self.width, self.height, self.fontSize, self.ppy, self.showStrip = width, height, fontSize, ppy, showStrip
+  self.showTape = showTape ~= false
   local k = height / BASE_H
   self.k = k
   self.base = math.floor(height - 12 * k + 0.5)   -- tick baseline, from the top of the tape area
   -- digits leave the font's descender space empty; pull the number down over it
   self.pull = math.floor(fontSize * 0.14 + 0.5)
-  self.root:SetSize(width, height + fontSize + 2 - self.pull)
   self.area:SetHeight(height)
+  self.area:SetShown(self.showTape)
+  self.badge:SetShown(not self.showTape)
 
-  setFont(self.number, font or FALLBACK_FONT, fontSize)
-  setFont(self.unit, font or FALLBACK_FONT, math.max(8, math.floor(fontSize * 0.45 + 0.5)))
+  font = font or FALLBACK_FONT
+  setFont(self.number, font, fontSize)
+  setFont(self.unit, font, math.max(8, math.floor(fontSize * 0.45 + 0.5)))
+  local badgeSize = math.max(8, math.floor(fontSize * 0.42 + 0.5))
+  if not self.badgeText:SetFont(font, badgeSize, "") then self.badgeText:SetFont(FALLBACK_FONT, badgeSize, "") end
+  self.badgeSize = badgeSize
+
+  -- the number is centred on its own digits; "yd" (and the badge) hang off its right side
+  self.number:ClearAllPoints()
+  if self.showTape then
+    self.root:SetSize(width, height + fontSize + 2 - self.pull)
+    self.number:SetPoint("BOTTOM", self.area, "TOP", 0, 1 - self.pull)
+  else
+    self.root:SetSize(math.max(width, fontSize * 4), fontSize + 4)
+    self.number:SetPoint("BOTTOM", self.root, "BOTTOM", 0, 2 - self.pull)
+  end
+  self.unit:ClearAllPoints()
+  self.unit:SetPoint("BOTTOMLEFT", self.number, "BOTTOMRIGHT", 2, math.floor(fontSize * 0.08 + 0.5))
+  self.badge:ClearAllPoints()
+  self.badge:SetPoint("LEFT", self.unit, "RIGHT", math.floor(fontSize * 0.2 + 0.5), 0)
 
   -- backing plate: clear at the top, darkest at the zone strip, faded out to the sides
   local plateH = self.base + 5 * k
@@ -165,7 +198,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font)
     self.ticks[i]:Hide()
     self.strip[i]:Hide()
   end
-  self.first, self.drawn, self.text = nil, nil, nil
+  self.first, self.drawn, self.text, self.zone = nil, nil, nil, nil
   if self.value then self:Draw(self.value, self.label) end
 end
 
@@ -211,12 +244,14 @@ function Tape:Draw(v, label)
   if v == self.drawn and label == self.text then return end
   self.drawn = v
 
-  local cx, ppy = self.width / 2, self.ppy
-  local first = math.floor((v - cx / ppy) * 10) - 1
-  if first ~= self.first then self:Restyle(first) end
-  -- tick n sits at ruler x (n-1) * step and stands for (first + n - 1) / 10
-  self.ruler:ClearAllPoints()
-  self.ruler:SetPoint("TOPLEFT", self.area, "TOPLEFT", cx + (first / 10 - v) * ppy, 0)
+  if self.showTape then
+    local cx, ppy = self.width / 2, self.ppy
+    local first = math.floor((v - cx / ppy) * 10) - 1
+    if first ~= self.first then self:Restyle(first) end
+    -- tick n sits at ruler x (n-1) * step and stands for (first + n - 1) / 10
+    self.ruler:ClearAllPoints()
+    self.ruler:SetPoint("TOPLEFT", self.area, "TOPLEFT", cx + (first / 10 - v) * ppy, 0)
+  end
 
   local zone = self.zoneAt(v)
   label = label or tostring(math.floor(v))
@@ -224,14 +259,13 @@ function Tape:Draw(v, label)
     self.text, self.zone = label, zone
     local c = Tape.COLORS[zone]
     self.number:SetText(label)
-    self.unit:SetText(self.unitName or "yd")
     self.number:SetTextColor(c[1], c[2], c[3])
     self.unit:SetTextColor(c[1], c[2], c[3])
-    -- number + unit centred as one group
-    local nw, uw, gap = self.number:GetStringWidth(), self.unit:GetStringWidth(), 2
-    self.number:ClearAllPoints()
-    self.number:SetPoint("BOTTOMLEFT", self.area, "TOPLEFT", math.floor(cx - (nw + gap + uw) / 2 + 0.5), 1 - self.pull)
-    self.unit:ClearAllPoints()
-    self.unit:SetPoint("BOTTOMLEFT", self.number, "BOTTOMRIGHT", gap, math.floor(self.fontSize * 0.08 + 0.5))
+    if not self.showTape then
+      self.badgeText:SetText(Tape.LABELS[zone])
+      self.badgeBg:SetColorTexture(c[1], c[2], c[3], 0.95)
+      local pad = math.floor(self.badgeSize * 0.45 + 0.5)
+      self.badge:SetSize(self.badgeText:GetStringWidth() + pad * 2, self.badgeSize + pad)
+    end
   end
 end
