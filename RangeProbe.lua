@@ -1,16 +1,24 @@
--- Range Probe: throwaway test of how closely the distance to the target can be estimated.
--- Next to the target frame: the estimate (B) coloured by zone, and below it the raw bracket,
--- A, B and the true distance when the game gives positions (party members in the open world).
+-- Range Probe: distance to the target from range checks, shown on a sliding range tape.
+-- The tape's colours come from your spellbook: blue melee, green shoot / cast / heal, grey dead.
+-- Optional detail lines show the raw bracket, estimates A and B and the true distance.
 local _, ns = ...
 
 local issecret = issecretvalue or function() return false end
 local TICK = 0.05
 local YD_TO_M = 0.9144
+local MELEE = 5
+
+ns.DEFAULTS = {
+  width = 280, height = 40, fontSize = 30, ppy = 57, strip = true,
+  unlocked = false, details = false, log = false, noPos = false, meters = false,
+}
 
 local db
 local est = ns.Estimator.new()
 local groups = {}        -- ascending by range: { range, harmItem, friendItem, interact, spells }
-local zoneSpells = {}    -- { id, min, max, harmful, helpful }
+local zones = { harm = { work = {} }, help = { work = {} } }
+local meleeCandidates = {}   -- harmful spells of melee reach; a real range check proves one
+local meleeProven = {}       -- spellID -> true once it answered a range check on an enemy
 local secrets = { spell = 0, item = 0, speed = 0 }
 local targetSpeedSecret = false
 
@@ -56,27 +64,58 @@ local function spellbookSpells()
   return out
 end
 
+-- Sorted, merged copy of { {a, b}, ... }.
+local function merge(list)
+  table.sort(list, function(x, y) return x[1] < y[1] end)
+  local out = {}
+  for _, r in ipairs(list) do
+    local top = out[#out]
+    if top and r[1] <= top[2] then
+      if r[2] > top[2] then top[2] = r[2] end
+    else
+      out[#out + 1] = { r[1], r[2] }
+    end
+  end
+  return out
+end
+
 local INTERACT = { [3] = 8, [4] = 28 }
 local INTERACT_RACE = { Tauren = { [3] = 6, [4] = 25 }, Scourge = { [3] = 7, [4] = 27 } }
 
 local function build()
   wipe(groups)
-  wipe(zoneSpells)
   for range, ids in pairs(ns.HARM_ITEMS) do group(range).harmItem = pickItem(ids) end
   for range, ids in pairs(ns.FRIEND_ITEMS) do group(range).friendItem = pickItem(ids) end
   local _, race = UnitRace("player")
   for index, range in pairs(INTERACT_RACE[race] or INTERACT) do group(range).interact = index end
+
+  local harmWork, helpWork = {}, {}
+  wipe(meleeCandidates)
   for _, id in ipairs(spellbookSpells()) do
     local info = C_Spell.GetSpellInfo(id)
     if info then
       local min, max = info.minRange or 0, info.maxRange or 0
-      local z = { id = id, min = min, max = max,
-        harmful = C_Spell.IsSpellHarmful(id), helpful = C_Spell.IsSpellHelpful(id) }
-      if z.harmful or z.helpful then zoneSpells[#zoneSpells + 1] = z end
       -- A spell with a minimum range says "false" up close too, so it can't bound the bracket.
       if max > 0 and min == 0 then table.insert(group(max).spells, id) end
+      -- Zones. Melee abilities report no range, like self-centred AoEs, so they are only
+      -- candidates until a range check on an enemy answers for one (see probeMelee).
+      local harmful, helpful = C_Spell.IsSpellHarmful(id), C_Spell.IsSpellHelpful(id)
+      if harmful and max <= MELEE then
+        meleeCandidates[#meleeCandidates + 1] = id
+      elseif harmful then
+        harmWork[#harmWork + 1] = { min, max }
+      elseif helpful and max > 0 then
+        helpWork[#helpWork + 1] = { min, max }
+      end
     end
   end
+  local melee = false
+  for _, id in ipairs(meleeCandidates) do
+    if meleeProven[id] then melee = true end
+  end
+  zones.harm = { melee = melee, work = merge(harmWork) }
+  zones.help = { melee = false, work = merge(helpWork) }
+
   for i = #groups, 1, -1 do
     local g = groups[i]
     if not g.harmItem and not g.friendItem and not g.interact and #g.spells == 0 then
@@ -154,7 +193,7 @@ local function speedOf(unit)
 end
 
 local function playerPos()
-  if db and db.noPos then return nil end   -- /rp nopos: behave as in a dungeon
+  if db and db.noPos then return nil end   -- behave as in a dungeon
   local y, x = UnitPosition("player")
   if not y or issecret(y) or issecret(x) then return nil end
   return x, y
@@ -171,69 +210,70 @@ local function truth(unit)
   return math.sqrt((x1 - x2) ^ 2 + (y1 - y2) ^ 2)
 end
 
--- "work": something reaches, "dead": too close for what has a minimum range and nothing else
--- reaches, "far": nothing reaches.
-local function zone(unit, hostile, d)
-  local minNeeded = 0
-  local any = false
-  for _, z in ipairs(zoneSpells) do
-    if (hostile and z.harmful) or (not hostile and z.helpful) then
-      local v = C_Spell.IsSpellInRange(z.id, unit)
-      if not issecret(v) then
-        if v == true then any = true end
-        if z.min > minNeeded then minNeeded = z.min end
-      end
+-- Zones -------------------------------------------------------------------------------------
+
+-- A spell with melee reach that gives a range answer on an enemy is a melee ability.
+local function probeMelee(unit)
+  if zones.harm.melee then return end
+  for _, id in ipairs(meleeCandidates) do
+    local v = C_Spell.IsSpellInRange(id, unit)
+    if not issecret(v) and v ~= nil then
+      meleeProven[id] = true
+      zones.harm.melee = true
+      return
     end
   end
-  if any then return "work" end
-  if d and minNeeded > 0 and d < minNeeded then return "dead" end
-  return "far"
 end
 
-local COLORS = { work = { 0.3, 1, 0.35 }, dead = { 1, 0.25, 0.2 }, far = { 0.6, 0.6, 0.6 } }
+local hostileTarget = true
+
+-- d in yd. Melee wins up close for classes that have melee abilities.
+local function zoneAt(d)
+  local z = hostileTarget and zones.harm or zones.help
+  if z.melee and d <= MELEE then return "melee" end
+  for _, r in ipairs(z.work) do
+    if d >= r[1] and d <= r[2] then return "work" end
+    if r[1] > d then break end
+  end
+  return "dead"
+end
 
 -- UI ----------------------------------------------------------------------------------------
 
-local frame = CreateFrame("Frame", "RangeProbeFrame", UIParent)
-frame:SetSize(170, 46)
-frame:SetFrameStrata("HIGH")
-frame:SetMovable(true)
-frame:EnableMouse(true)
-frame:RegisterForDrag("LeftButton")
-frame:SetScript("OnDragStart", function(self) if IsShiftKeyDown() then self:StartMoving() end end)
-frame:SetScript("OnDragStop", function(self)
+local tape = ns.Tape.New(UIParent)
+local root = tape.root
+root:SetMovable(true)
+root:SetClampedToScreen(true)
+root:RegisterForDrag("LeftButton")
+root:SetScript("OnDragStart", function(self) self:StartMoving() end)
+root:SetScript("OnDragStop", function(self)
   self:StopMovingOrSizing()
   local point, _, rel, x, y = self:GetPoint()
   db.pos = { point, rel, x, y }
 end)
-frame:Hide()
+root:Hide()
 
-local big = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightHuge")
-big:SetPoint("TOPLEFT")
-local line1 = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-line1:SetPoint("TOPLEFT", big, "BOTTOMLEFT", 0, -2)
-local line2 = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-line2:SetPoint("TOPLEFT", line1, "BOTTOMLEFT", 0, -1)
+local line1 = root:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+line1:SetPoint("TOP", root, "BOTTOM", 0, -16)
+local line2 = root:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+line2:SetPoint("TOP", line1, "BOTTOM", 0, -1)
 
 local function place()
-  frame:ClearAllPoints()
+  root:ClearAllPoints()
   if db.pos then
-    frame:SetPoint(db.pos[1], UIParent, db.pos[2], db.pos[3], db.pos[4])
+    root:SetPoint(db.pos[1], UIParent, db.pos[2], db.pos[3], db.pos[4])
   elseif TargetFrame then
-    frame:SetPoint("LEFT", TargetFrame, "RIGHT", 4, 6)
+    root:SetPoint("TOP", TargetFrame, "BOTTOM", -20, 4)
   else
-    frame:SetPoint("CENTER", UIParent, "CENTER", 200, 0)
+    root:SetPoint("CENTER", UIParent, "CENTER", 0, -120)
   end
 end
 
-local function u(v)
-  if not v then return "?" end
-  return db.meters and v * YD_TO_M or v
-end
+local function conv(v) return db.meters and v * YD_TO_M or v end
 
 local function fmt(v)
   if not v then return "?" end
-  return ("%.1f"):format(u(v))
+  return ("%.1f"):format(conv(v))
 end
 
 local function bracketText(lo, hi)
@@ -242,11 +282,30 @@ local function bracketText(lo, hi)
   return ("%s-%s %s"):format(fmt(lo), fmt(hi), unitName)
 end
 
--- Tick --------------------------------------------------------------------------------------
+-- the tape works in display units; zones are in yd
+local function displayZoneAt(d)
+  return zoneAt(db.meters and d / YD_TO_M or d)
+end
+tape:SetZones(displayZoneAt)
 
-local acc = 0
-local clock = 0
-frame:SetScript("OnUpdate", function(_, elapsed)
+function ns.ApplyLayout()
+  if not db then return end
+  tape.unitName = db.meters and "m" or "yd"
+  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.strip)
+  tape:SetUnlocked(db.unlocked)
+  line1:SetShown(db.details)
+  line2:SetShown(db.details)
+  ns.RefreshShown()
+end
+
+-- Tick: estimation at 20 Hz on a hidden driver frame -----------------------------------------
+
+local goal, goalLabel        -- what the tape slides towards (display units) and its label
+local shown                  -- what the tape shows now
+local acc, clock = 0, 0
+local driver = CreateFrame("Frame")
+driver:Hide()
+driver:SetScript("OnUpdate", function(_, elapsed)
   acc = acc + elapsed
   if acc < TICK then return end
   local dt = acc
@@ -256,6 +315,8 @@ frame:SetScript("OnUpdate", function(_, elapsed)
   if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
   local hostile = UnitCanAttack("player", unit)
   if issecret(hostile) then hostile = true end
+  hostileTarget = hostile
+  if hostile then probeMelee(unit) end
 
   local lo, hi = measure(unit, hostile)
   local ts = speedOf(unit)
@@ -264,34 +325,48 @@ frame:SetScript("OnUpdate", function(_, elapsed)
   -- An unknown target speed counts as standing; the next crossing corrects a wrong guess.
   local c = est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
   local a, b = est:valueA(clock, lo, hi), est:valueB(lo, hi)
-  local real = truth(unit)
 
-  local z = zone(unit, hostile, b)
-  local col = COLORS[z]
   if b then
-    big:SetText(("~%s %s"):format(fmt(b), db.meters and "m" or "yd"))
+    goal = conv(b)
+    goalLabel = tostring(math.floor(goal))
   else
-    big:SetText(bracketText(lo, hi))
+    goal = conv(lo)
+    goalLabel = math.floor(goal) .. "+"
   end
-  big:SetTextColor(col[1], col[2], col[3])
-  line1:SetText(("%s   A %s   B %s"):format(bracketText(lo, hi), fmt(a), fmt(b)))
-  line2:SetText(("%s   B by %s   speed %.1f%s"):format(real and ("true " .. fmt(real)) or "true ?",
-    est:mode() == "pos" and "position" or "rate", sp,
-    targetSpeedSecret and " (target speed hidden)" or ""))
+
+  if db.details then
+    local real = truth(unit)
+    line1:SetText(("%s   A %s   B %s"):format(bracketText(lo, hi), fmt(a), fmt(b)))
+    line2:SetText(("%s   B by %s   speed %.1f%s"):format(real and ("true " .. fmt(real)) or "true ?",
+      est:mode() == "pos" and "position" or "rate", sp,
+      targetSpeedSecret and " (target speed hidden)" or ""))
+  end
 
   if c and db.log then
     if c.errA then
       say(("%s %s  A %s (err %.1f)  B %s (err %.1f)  mid err %s  speed %.1f"):format(
-        c.dir < 0 and "in" or "out", fmt(c.at), fmt(c.a), u(c.errA), fmt(c.b), u(c.errB),
-        c.mid and ("%.1f"):format(u(math.abs(c.mid - c.at))) or "?", sp))
+        c.dir < 0 and "in" or "out", fmt(c.at), fmt(c.a), conv(c.errA), fmt(c.b), conv(c.errB),
+        c.mid and ("%.1f"):format(conv(math.abs(c.mid - c.at))) or "?", sp))
     else
       say(("%s %s  (first crossing on this target)"):format(c.dir < 0 and "in" or "out", fmt(c.at)))
     end
   end
 end)
 
-local function refreshShown()
-  if UnitExists("target") and not UnitIsDeadOrGhost("target") then frame:Show() else frame:Hide() end
+-- Drawing: every frame, the tape glides towards the latest estimate.
+root:SetScript("OnUpdate", function(_, elapsed)
+  if not goal then
+    if not db.unlocked then return end
+    goal, goalLabel = conv(21.4), tostring(math.floor(conv(21.4)))   -- sample while unlocked
+  end
+  shown = shown and shown + (goal - shown) * math.min(1, elapsed * 14) or goal
+  tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
+end)
+
+function ns.RefreshShown()
+  local has = UnitExists("target") and not UnitIsDeadOrGhost("target")
+  driver:SetShown(has)
+  root:SetShown(has or (db and db.unlocked))
 end
 
 -- Commands ----------------------------------------------------------------------------------
@@ -303,13 +378,21 @@ local function printStats()
     return
   end
   say(("%d crossings. Mean error: middle of bracket %.2f, A %.2f, B %.2f %s. Worst: A %.1f, B %.1f.")
-    :format(s.n, u(s.midn > 0 and s.mid / s.midn or 0), u(s.a / s.n), u(s.b / s.n),
-      db.meters and "m" or "yd", u(s.amax), u(s.bmax)))
+    :format(s.n, conv(s.midn > 0 and s.mid / s.midn or 0), conv(s.a / s.n), conv(s.b / s.n),
+      db.meters and "m" or "yd", conv(s.amax), conv(s.bmax)))
+end
+
+local function zoneText(z)
+  local parts = {}
+  if z.melee then parts[#parts + 1] = "melee 0-" .. MELEE end
+  for _, r in ipairs(z.work) do parts[#parts + 1] = ("work %g-%g"):format(r[1], r[2]) end
+  return #parts > 0 and table.concat(parts, ", ") or "none"
 end
 
 local function printList()
-  say(("%d range steps, %d zone spells. Secret results so far: spell %d, item %d, speed %d. Own position: %s.")
-    :format(#groups, #zoneSpells, secrets.spell, secrets.item, secrets.speed, playerPos() and "yes" or "hidden"))
+  say(("%d range steps. Secret results so far: spell %d, item %d, speed %d. Own position: %s.")
+    :format(#groups, secrets.spell, secrets.item, secrets.speed, playerPos() and "yes" or "hidden"))
+  say("zones on enemies: " .. zoneText(zones.harm) .. "; on friends: " .. zoneText(zones.help))
   for _, g in ipairs(groups) do
     local parts = {}
     if g.harmItem then parts[#parts + 1] = "harm item " .. g.harmItem end
@@ -324,31 +407,28 @@ end
 SLASH_RANGEPROBE1 = "/rp"
 SlashCmdList.RANGEPROBE = function(msg)
   msg = strtrim(msg or ""):lower()
-  if msg == "log" then
-    db.log = not db.log
-    say("crossing log " .. (db.log and "on" or "off"))
-  elseif msg == "stats" then
+  if msg == "stats" then
     printStats()
   elseif msg == "reset" then
     est:resetStats()
     say("stats cleared")
   elseif msg == "list" then
     printList()
-  elseif msg == "m" or msg == "yd" then
-    db.meters = msg == "m"
-    say("units: " .. (db.meters and "metres" or "yards"))
-  elseif msg == "nopos" then
-    db.noPos = not db.noPos
-    est:reset()
-    est:resetStats()
-    say(db.noPos and "ignoring your position, as in a dungeon (stats cleared)"
-      or "using your position again (stats cleared)")
-  elseif msg == "home" then
-    db.pos = nil
-    place()
+  elseif msg == "" or msg == "config" or msg == "options" then
+    ns.OpenOptions()
   else
-    say("/rp log | stats | reset | list | nopos | m | yd | home   (Shift+drag moves the readout)")
+    say("/rp opens the options.  /rp stats | reset | list")
   end
+end
+
+function ns.ResetPosition()
+  db.pos = nil
+  place()
+end
+
+function ns.OnNoPosChanged()
+  est:reset()
+  est:resetStats()
 end
 
 -- Events ------------------------------------------------------------------------------------
@@ -362,20 +442,29 @@ events:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
     RangeProbeDB = RangeProbeDB or {}
     db = RangeProbeDB
-    if db.log == nil then db.log = true end
+    for k, v in pairs(ns.DEFAULTS) do
+      if db[k] == nil then db[k] = v end
+    end
+    ns.db = db
     place()
     build()
-    refreshShown()
+    ns.CreateOptions(db)
+    ns.ApplyLayout()
   elseif not db then
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
     est:reset()
     targetSpeedSecret = false
-    refreshShown()
+    goal, shown = nil, nil
+    if UnitExists("target") then
+      local hostile = UnitCanAttack("player", "target")
+      hostileTarget = issecret(hostile) or hostile
+    end
+    ns.RefreshShown()
   else
     rebuildSoon()
   end
 end)
 
--- A target that dies stays targeted; hide the readout then.
-C_Timer.NewTicker(0.5, function() if db then refreshShown() end end)
+-- A target that dies stays targeted; hide the tape then.
+C_Timer.NewTicker(0.5, function() if db then ns.RefreshShown() end end)

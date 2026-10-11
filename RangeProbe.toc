@@ -1,9 +1,11 @@
 ## Interface: 120100
 ## Title: Range Probe
-## Notes: Throwaway test: how closely the distance to the target can be estimated.
-## Version: 0.1
+## Notes: Distance to your target on a sliding range tape, coloured by your melee, cast and dead zones.
+## Version: 0.2
 ## SavedVariables: RangeProbeDB
 
 Items.lua
 Estimator.lua
+Tape.lua
 RangeProbe.lua
+Options.lua
