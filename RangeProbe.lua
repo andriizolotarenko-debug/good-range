@@ -438,6 +438,11 @@ events:RegisterEvent("SPELLS_CHANGED")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- talents and gear can change spell ranges: rebuild the zones then
+for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
+  if not C_EventUtils or C_EventUtils.IsEventValid(e) then events:RegisterEvent(e) end
+end
+events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
     RangeProbeDB = RangeProbeDB or {}
