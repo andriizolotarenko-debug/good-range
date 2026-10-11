@@ -228,7 +228,7 @@ end
 
 -- UI ----------------------------------------------------------------------------------------
 
-local tape = ns.Tape.New(UIParent)
+local tape = ns.Tape.New(UIParent, "RangeProbeTape")
 local root = tape.root
 root:SetMovable(true)
 root:SetClampedToScreen(true)

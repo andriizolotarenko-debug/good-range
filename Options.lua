@@ -145,30 +145,56 @@ local function build()
   reset:SetText("Reset position")
   reset:SetScript("OnClick", function() ns.ResetPosition() end)
 
-  -- display: the sliding tape, or the number with a zone badge
+  -- display: two clickable previews, the sliding tape and the number with a zone badge
   y = y - 36
-  label(win, "Display", 16, y - 4)
-  local modes = {}
+  label(win, "Display", 16, y)
+  y = y - 18
+  local tiles = {}
+  local function sampleZone(d) return ns.Zones.at(d, { { 8, 35 } }) end
   local function showMode()
-    for value, b in pairs(modes) do
-      if db.display == value then b:LockHighlight() else b:UnlockHighlight() end
+    for mode, tile in pairs(tiles) do
+      local on = db.display == mode
+      for _, edge in ipairs(tile.edges) do
+        if on then edge:SetColorTexture(1, 0.82, 0, 1) else edge:SetColorTexture(0.4, 0.4, 0.4, 0.8) end
+      end
+      tile.caption:SetTextColor(on and 1 or 0.7, on and 0.82 or 0.7, on and 0 or 0.7)
+      tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, mode == "tape" and 22 or 18, 20, db.font, mode)
+      tile.preview:Draw(21.4, "21")
     end
   end
   for i, m in ipairs({ { "tape", "Tape" }, { "label", "Label" } }) do
-    local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-    b:SetSize(80, 22)
-    b:SetPoint("TOPRIGHT", win, "TOPRIGHT", -14 - (2 - i) * 84, y)
-    b:SetText(m[2])
-    b:SetScript("OnClick", function()
+    local tile = CreateFrame("Button", nil, win)
+    tile:SetSize((W - 40) / 2, 78)
+    tile:SetPoint("TOPLEFT", 14 + (i - 1) * ((W - 40) / 2 + 12), y)
+    local bg = tile:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.02, 0.02, 0.03, 0.6)
+    tile.edges = {}
+    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
+                         { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil } }) do
+      local t = tile:CreateTexture(nil, "BORDER")
+      t:SetPoint(e[1])
+      t:SetPoint(e[2])
+      if e[3] then t:SetWidth(e[3]) else t:SetHeight(e[4]) end
+      tile.edges[#tile.edges + 1] = t
+    end
+    tile.caption = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    tile.caption:SetPoint("BOTTOM", 0, 5)
+    tile.caption:SetText(m[2])
+    tile.preview = ns.Tape.New(tile)
+    tile.preview.root:SetPoint("CENTER", tile, "CENTER", 0, 7)
+    tile.preview:SetZones(sampleZone)
+    tile.preview.root:Show()
+    tile:SetScript("OnClick", function()
       db.display = m[1]
       showMode()
       ns.ApplyLayout()
     end)
-    modes[m[1]] = b
+    tiles[m[1]] = tile
   end
   controls[#controls + 1] = { Refresh = showMode }
 
-  y = y - 40
+  y = y - 92
   controls[#controls + 1] = slider(win, "Width", y, "width", 100, 1000, 10)
   y = y - 44
   controls[#controls + 1] = slider(win, "Height", y, "height", 20, 160, 1)
@@ -190,6 +216,7 @@ local function build()
     db.font = list[(at - 1 + dir) % #list + 1][1]
     fontText:SetText(fontName(db.font))
     ns.ApplyLayout()
+    showMode()
   end
   for _, side in ipairs({ { "<", -1, "LEFT", 14 }, { ">", 1, "RIGHT", -14 } }) do
     local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")

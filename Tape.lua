@@ -30,12 +30,12 @@ Tape.FONTS = {
   { "Fonts\\MORPHEUS.TTF", "Morpheus" },
 }
 
--- Digit height as a part of the font size (Changa's digits are 640 of its 1000 units; a rough
--- guess for the other fonts). Everything is placed from the font size and from the centre of
--- the text: the height a client reports for a line of text differs between Retail and Classic,
--- while digits sit in the middle of the line in all of them (in Changa within 1%).
-local DIGIT = { [MEDIA .. "Changa-Bold.ttf"] = 0.64 }
-local DEFAULT_DIGIT = 0.7
+-- Where the digits are, as parts of the font size S, for a string placed by its centre: digit
+-- height D * S, digit middle R * S above the string's centre. Placing by font size and centre
+-- works on every client (the line height a client reports differs between Retail and Classic).
+-- Changa's values were measured on screen in game; the rest are a rough guess.
+local DIGIT = { [MEDIA .. "Changa-Bold.ttf"] = { D = 0.725, R = 0.13 } }
+local DEFAULT_DIGIT = { D = 0.72, R = 0.1 }
 
 Tape.LABELS = { melee = "MELEE", work = "RANGED", dead = "DEAD ZONE", far = "OUT OF RANGE" }
 
@@ -55,10 +55,12 @@ local function setFont(fs, font, size, flags)
   if not fs:SetFont(font, size, flags) then fs:SetFont(FALLBACK_FONT, size, flags) end
 end
 
-function Tape.New(parent)
+-- name: global frame name (nil for previews). A display on UIParent gets its own strata;
+-- one inside another frame (the settings previews) draws with that frame.
+function Tape.New(parent, name)
   local self = setmetatable({ ticks = {}, plate = {} }, Tape)
-  local root = CreateFrame("Frame", "RangeProbeTape", parent)
-  root:SetFrameStrata("MEDIUM")
+  local root = CreateFrame("Frame", name, parent)
+  if parent == UIParent then root:SetFrameStrata("MEDIUM") end
   self.root = root
 
   self.area = CreateFrame("Frame", nil, root)
@@ -154,9 +156,9 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   end
   self.unit:SetText("yd")   -- only once a font is set: text on a font-less string errors
 
-  local digitH = math.max(6, math.floor(fontSize * (DIGIT[font] or DEFAULT_DIGIT) + 0.5))
+  local m = DIGIT[font] or DEFAULT_DIGIT
+  local digitH = math.max(6, math.floor(fontSize * m.D + 0.5))
   local unitSize = math.max(8, math.floor(fontSize * 0.45 + 0.5))   -- same as the "yd" font above
-  local unitH = unitSize * (DIGIT[font] or DEFAULT_DIGIT)
 
   -- badge: as tall as the digits; one width for every label (the longest), so nothing shifts
   self.badge:SetHeight(digitH)
@@ -180,7 +182,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     -- tape: the number is centred on its own digits over the needle; "yd" hangs off its right
     self.number:SetJustifyH("CENTER")
     self.root:SetSize(width, height + digitH + 4)
-    self.number:SetPoint("CENTER", self.area, "TOP", 0, 3 + digitH / 2)
+    self.number:SetPoint("CENTER", self.area, "TOP", 0, 3 + digitH / 2 - m.R * fontSize)
   else
     -- label: [ badge ] [ number, right-aligned in a two-digit slot ] yd -- all fixed in place
     local gap = math.floor(fontSize * 0.25 + 0.5)
@@ -190,10 +192,11 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     self.number:SetJustifyH("RIGHT")
     self.root:SetSize(badgeW + gap + slot + 2 + unitW, digitH + 4)
     self.badge:SetPoint("LEFT", self.root, "LEFT", 0, 0)
-    self.number:SetPoint("RIGHT", self.root, "LEFT", badgeW + gap + slot, 0)
+    -- the digits' middle on the row's middle, level with the badge
+    self.number:SetPoint("RIGHT", self.root, "LEFT", badgeW + gap + slot, -m.R * fontSize)
   end
   -- "yd" stands on the digits' baseline
-  self.unit:SetPoint("LEFT", self.number, "RIGHT", 2, -(digitH - unitH) / 2)
+  self.unit:SetPoint("LEFT", self.number, "RIGHT", 2, (m.R - m.D / 2) * (fontSize - unitSize))
 
   -- backing plate: darkest at the ruler's bottom edge, clear at the top and to the sides
   local sw = width / SLICES
