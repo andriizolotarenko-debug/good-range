@@ -14,8 +14,9 @@ ns.Tape = Tape
 local MEDIA = "Interface\\AddOns\\RangeProbe\\media\\"
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 
--- Built-in fonts to choose from (Options > Font).
+-- Fonts to choose from (Options > Font): Changa ships with the addon (OFL), the rest are built in.
 Tape.FONTS = {
+  { MEDIA .. "Changa-Bold.ttf", "Changa Bold" },
   { "Fonts\\skurri.ttf", "Skurri (combat numbers)" },
   { "Fonts\\ARIALN.TTF", "Arial Narrow" },
   { "Fonts\\2002B.ttf", "2002 Bold" },

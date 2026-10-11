@@ -9,7 +9,8 @@ local YD_TO_M = 0.9144
 local MELEE = 5
 
 ns.DEFAULTS = {
-  width = 224, height = 32, fontSize = 24, ppy = 46, strip = true, font = "Fonts\\skurri.ttf",
+  width = 224, height = 32, fontSize = 24, ppy = 46, strip = true,
+  font = "Interface\\AddOns\\RangeProbe\\media\\Changa-Bold.ttf",
   unlocked = false, details = false, log = false, noPos = false, meters = false,
 }
 
@@ -457,6 +458,10 @@ events:SetScript("OnEvent", function(_, event)
       -- v2: 20% smaller tape, placed above the character
       db.width, db.height, db.fontSize, db.ppy, db.pos = nil, nil, nil, nil, nil
       db.layoutVersion = 2
+    end
+    if db.layoutVersion < 3 then
+      db.font = nil   -- v3: Changa Bold by default
+      db.layoutVersion = 3
     end
     for k, v in pairs(ns.DEFAULTS) do
       if db[k] == nil then db[k] = v end
