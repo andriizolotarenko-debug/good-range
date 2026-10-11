@@ -66,3 +66,14 @@ for x in range(256):
         mask.putpixel((x, y), (v, v, v, v))
 mask.save("media/fade_mask.tga")
 print("media/fade_mask.tga", mask.size)
+
+# media/badge.tga: white rounded rectangle for the zone badge, sliced into left cap / middle /
+# right cap in Lua (texcoords 0-0.25, 0.25-0.75, 0.75-1; caps are half the height wide)
+S = 8
+big = Image.new("L", (64 * S, 32 * S), 0)
+ImageDraw.Draw(big).rounded_rectangle([0, 0, 64 * S - 1, 32 * S - 1], radius=9 * S, fill=255)
+alpha = big.resize((64, 32), Image.LANCZOS)
+badge = Image.new("RGBA", (64, 32), (255, 255, 255, 0))
+badge.putalpha(alpha)
+badge.save("media/badge.tga")
+print("media/badge.tga", badge.size)

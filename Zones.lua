@@ -4,7 +4,9 @@
 -- which WoW: Forever uses). The ranges themselves are read from the game for the rank you know,
 -- so Forever's own changes and range talents count. Utility spells with odd ranges (Hunter's
 -- Mark at 100 yd, buffs) are left out on purpose, or they would paint over the dead zone.
--- Melee (0-5 yd) is always marked and wins over everything else.
+-- Melee (0-5 yd) is always marked and wins over everything else. A gap below your longest reach
+-- (a hunter's 5-8 yd before Auto Shot starts) is the dead zone; past your longest reach you are
+-- out of range.
 local _, ns = ...
 
 local Zones = {}
@@ -65,14 +67,15 @@ function Zones.fromList(ids, known, getInfo)
   return any and Zones.merge(work) or nil
 end
 
--- d in yd; work: merged intervals.
+-- d in yd; work: merged intervals. -> "melee", "work", "dead" (a gap you can still reach past)
+-- or "far" (beyond everything).
 function Zones.at(d, work)
   if d <= Zones.MELEE then return "melee" end
   for _, r in ipairs(work) do
     if d >= r[1] and d <= r[2] then return "work" end
-    if r[1] > d then break end
+    if r[1] > d then return "dead" end
   end
-  return "dead"
+  return "far"
 end
 
 return Zones

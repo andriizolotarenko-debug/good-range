@@ -92,7 +92,7 @@ local function build()
   local template
   win, template = ns.API.CreateFrameFrom("Frame", "RangeProbeOptions", UIParent,
     { "DefaultPanelFlatTemplate", "BasicFrameTemplateWithInset" })
-  win:SetSize(W, 600)
+  win:SetWidth(W)
   win:SetFrameStrata("DIALOG")
   win:SetToplevel(true)
   win:SetClampedToScreen(true)
@@ -145,7 +145,30 @@ local function build()
   reset:SetText("Reset position")
   reset:SetScript("OnClick", function() ns.ResetPosition() end)
 
+  -- display: the sliding tape, or the number with a zone badge
   y = y - 36
+  label(win, "Display", 16, y - 4)
+  local modes = {}
+  local function showMode()
+    for value, b in pairs(modes) do
+      if db.display == value then b:LockHighlight() else b:UnlockHighlight() end
+    end
+  end
+  for i, m in ipairs({ { "tape", "Tape" }, { "label", "Label" } }) do
+    local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+    b:SetSize(80, 22)
+    b:SetPoint("TOPRIGHT", win, "TOPRIGHT", -14 - (2 - i) * 84, y)
+    b:SetText(m[2])
+    b:SetScript("OnClick", function()
+      db.display = m[1]
+      showMode()
+      ns.ApplyLayout()
+    end)
+    modes[m[1]] = b
+  end
+  controls[#controls + 1] = { Refresh = showMode }
+
+  y = y - 40
   controls[#controls + 1] = slider(win, "Width", y, "width", 100, 1000, 10)
   y = y - 44
   controls[#controls + 1] = slider(win, "Height", y, "height", 20, 160, 1)
@@ -178,13 +201,6 @@ local function build()
   controls[#controls + 1] = { Refresh = function() fontText:SetText(fontName(db.font)) end }
 
   y = y - 50
-  controls[#controls + 1] = checkbox(win, "Range tape", 12, y,
-    function() return db.tape end, function(v) db.tape = v; ns.ApplyLayout() end,
-    "Off: no ruler; the distance gets a Melee / Ranged / Dead Zone badge instead.")
-  controls[#controls + 1] = checkbox(win, "Zone strip", 150, y,
-    function() return db.strip end, function(v) db.strip = v; ns.ApplyLayout() end)
-
-  y = y - 34
   label(win, "Show", 16, y, "GameFontNormalSmall")
   y = y - 16
   local function shownWhen(text, key, x, yy)
@@ -196,17 +212,7 @@ local function build()
   y = y - 26
   shownWhen("Enemy target", "enemy", 12, y)
   shownWhen("Friendly target", "friendly", 150, y)
-
-  y = y - 36
-  label(win, "Testing", 16, y, "GameFontNormalSmall")
-  y = y - 16
-  controls[#controls + 1] = checkbox(win, "Show estimate details", 12, y,
-    function() return db.details end, function(v) db.details = v; ns.ApplyLayout() end,
-    "Lines under the tape: raw bracket, estimates A and B, true distance when the game gives it.")
-  y = y - 26
-  controls[#controls + 1] = checkbox(win, "Log crossings to chat", 12, y,
-    function() return db.log end, function(v) db.log = v end,
-    "Each time the target crosses a range step, print how far off A and B were.")
+  win:SetHeight(-y + 40)
 
   win:SetScript("OnShow", function()
     for _, c in ipairs(controls) do c:Refresh() end

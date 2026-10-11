@@ -1,7 +1,6 @@
--- Range Probe: distance to the target from range checks, shown on a sliding range tape
--- (or as a number with a Melee / Ranged / Dead Zone badge). Colours come from your class zones:
--- blue melee, green shoot / cast / heal, grey dead. Optional detail lines show the raw bracket,
--- estimates A and B and the true distance.
+-- Range Probe: distance to the target from range checks, shown on a sliding range tape or as a
+-- number with a zone badge. Colours come from your class zones: blue melee, green shoot / cast /
+-- heal, red dead zone, grey out of range.
 local _, ns = ...
 
 local issecret = issecretvalue or function() return false end
@@ -26,10 +25,10 @@ local function itemLists(a, b)
 end
 
 ns.DEFAULTS = {
-  width = 130, height = 31, fontSize = 32, ppy = 20, strip = true, tape = true,
+  width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape",
   font = "Interface\\AddOns\\RangeProbe\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
-  unlocked = false, details = false, log = false,
+  unlocked = false,
 }
 
 local db
@@ -37,7 +36,6 @@ local est = ns.Estimator.new()
 local groups = {}        -- ascending by range: { range, harmItem, friendItem, interact, spells }
 local zones = { harm = {}, help = {} }   -- work intervals { {a, b}, ... } per target kind
 local secrets = { spell = 0, item = 0, speed = 0 }
-local targetSpeedSecret = false
 
 local function say(msg) print("|cff66ccffRange Probe|r " .. msg) end
 
@@ -204,7 +202,6 @@ local function speedOf(unit)
   if v == nil then return nil end
   if issecret(v) then
     secrets.speed = secrets.speed + 1
-    targetSpeedSecret = true
     return nil
   end
   return v
@@ -215,17 +212,6 @@ local function playerPos()
   local y, x = UnitPosition("player")
   if not y or issecret(y) or issecret(x) then return nil end
   return x, y
-end
-
-local function truth(unit)
-  local y1, x1, _, i1 = UnitPosition("player")
-  local y2, x2, _, i2 = UnitPosition(unit)
-  if not y1 or not y2 then return nil end
-  if issecret(y1) or issecret(y2) or issecret(x1) or issecret(x2) or issecret(i1) or issecret(i2) then
-    return nil
-  end
-  if i1 ~= i2 then return nil end
-  return math.sqrt((x1 - x2) ^ 2 + (y1 - y2) ^ 2)
 end
 
 -- Zones -------------------------------------------------------------------------------------
@@ -252,11 +238,6 @@ root:SetScript("OnDragStop", function(self)
 end)
 root:Hide()
 
-local line1 = root:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-line1:SetPoint("TOP", root, "BOTTOM", 0, -16)
-local line2 = root:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-line2:SetPoint("TOP", line1, "BOTTOM", 0, -1)
-
 local function place()
   root:ClearAllPoints()
   if db.pos then
@@ -266,25 +247,13 @@ local function place()
   end
 end
 
-local function fmt(v)
-  if not v then return "?" end
-  return ("%.1f"):format(v)
-end
-
-local function bracketText(lo, hi)
-  if not hi then return (">%s yd"):format(fmt(lo)) end
-  return ("%s-%s yd"):format(fmt(lo), fmt(hi))
-end
-
 tape:SetZones(zoneAt)
 function ns.OnZonesChanged() tape:SetZones(zoneAt) end
 
 function ns.ApplyLayout()
   if not db then return end
-  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.strip, db.font, db.tape)
+  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display)
   tape:SetUnlocked(db.unlocked)
-  line1:SetShown(db.details)
-  line2:SetShown(db.details)
   ns.RefreshShown()
 end
 
@@ -315,8 +284,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   local sp = (speedOf("player") or 0) + (ts or 0)
   local px, py = playerPos()
   -- An unknown target speed counts as standing; the next crossing corrects a wrong guess.
-  local c = est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
-  local a, b = est:valueA(clock, lo, hi), est:valueB(lo, hi)
+  est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
+  local b = est:valueB(lo, hi)
 
   if b then
     goal = b
@@ -326,23 +295,6 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     goalLabel = math.floor(goal) .. "+"
   end
 
-  if db.details then
-    local real = truth(unit)
-    line1:SetText(("%s   A %s   B %s"):format(bracketText(lo, hi), fmt(a), fmt(b)))
-    line2:SetText(("%s   B by %s   speed %.1f%s"):format(real and ("true " .. fmt(real)) or "true ?",
-      est:mode() == "pos" and "position" or "rate", sp,
-      targetSpeedSecret and " (target speed hidden)" or ""))
-  end
-
-  if c and db.log then
-    if c.errA then
-      say(("%s %s  A %s (err %.1f)  B %s (err %.1f)  mid err %s  speed %.1f"):format(
-        c.dir < 0 and "in" or "out", fmt(c.at), fmt(c.a), c.errA, fmt(c.b), c.errB,
-        c.mid and ("%.1f"):format(math.abs(c.mid - c.at)) or "?", sp))
-    else
-      say(("%s %s  (first crossing on this target)"):format(c.dir < 0 and "in" or "out", fmt(c.at)))
-    end
-  end
 end)
 
 -- Drawing: every frame, the tape glides towards the latest estimate.
@@ -455,12 +407,17 @@ events:SetScript("OnEvent", function(_, event)
       db.font = nil   -- v3: Changa Bold by default
       db.layoutVersion = 3
     end
+    if db.layoutVersion < 5 then
+      -- v5: one display switch; the zone strip and the testing switches are gone
+      if db.tape == false then db.display = "label" end
+      db.tape, db.strip, db.details, db.log = nil, nil, nil, nil
+    end
     if db.layoutVersion < 4 then
       -- v4: Andrii's sizes as the defaults; metres and the position switch are gone
       db.width, db.height, db.fontSize, db.ppy = nil, nil, nil, nil
       db.meters, db.noPos = nil, nil
-      db.layoutVersion = 4
     end
+    db.layoutVersion = 5
     for k, v in pairs(ns.DEFAULTS) do
       if db[k] == nil then db[k] = v end
     end
@@ -474,7 +431,6 @@ events:SetScript("OnEvent", function(_, event)
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
     est:reset()
-    targetSpeedSecret = false
     goal, shown = nil, nil
     ns.ForgetBracket()
     if UnitExists("target") then
