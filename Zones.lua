@@ -23,7 +23,7 @@ Zones.MELEE = 5
 
 -- every badge text, so the badge can be as wide as the longest
 Zones.LABELS = { "MELEE", "RANGED", "CHARGE", "THROW", "SHOOT", "JUDGE", "SHOCK", "HEAL", "BUFF",
-  "DEAD ZONE", "OUT OF RANGE" }
+  "DEAD ZONE", "OUT OF RANGE", "NPC" }
 
 local function ids(min, max, ...)
   local out = {}
@@ -127,6 +127,9 @@ end
 function Zones.build(ctx)
   local def = Zones.CLASS[ctx.class]
   local spans, diag = {}, {}
+
+  -- a friendly NPC: nothing to do there, so the whole tape is grey
+  if ctx.friendlyNpc then return { { 0, math.huge, "far", "NPC" } }, diag end
 
   if not ctx.hostile then
     -- friendly target: your heals are the working range (HEAL); without any, your helpful

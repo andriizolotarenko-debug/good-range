@@ -224,6 +224,7 @@ local RETAIL = interface >= 100000
 local function refreshZones()
   local ctx = {
     class = playerClass, hostile = hostileTarget, known = spellbook.known, generic = spellbook.generic,
+    friendlyNpc = not hostileTarget and UnitExists("target") and not UnitIsPlayer("target"),
     getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
     form = playerClass == "DRUID" and API.Form() or nil,
     mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
