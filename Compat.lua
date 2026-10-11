@@ -95,3 +95,66 @@ function API.VerticalAlpha(tex, bottom, top)
     tex:SetGradientAlpha("VERTICAL", 0, 0, 0, bottom, 0, 0, 0, top)
   end
 end
+
+local issecret = issecretvalue or function() return false end
+
+-- Can you use the spell right now? -> usable, short of power (rage / mana / energy)
+function API.IsUsable(id)
+  local ok, noPower
+  if C_Spell and C_Spell.IsSpellUsable then
+    ok, noPower = C_Spell.IsSpellUsable(id)
+  elseif IsUsableSpell then
+    ok, noPower = IsUsableSpell(id)
+  else
+    return true, false
+  end
+  if issecret(ok) or issecret(noPower) then return true, false end
+  return ok and true or false, noPower and true or false
+end
+
+-- Off cooldown (the global cooldown does not count)?
+function API.IsReady(id)
+  local start, duration
+  if C_Spell and C_Spell.GetSpellCooldown then
+    local c = C_Spell.GetSpellCooldown(id)
+    if c then start, duration = c.startTime, c.duration end
+  elseif GetSpellCooldown then
+    start, duration = GetSpellCooldown(id)
+  end
+  if not start or issecret(start) or issecret(duration) then return true end
+  if start == 0 or duration <= 1.5 then return true end
+  return start + duration - GetTime() <= 0.2
+end
+
+-- Druid form: "cat", "bear", "moonkin", "travel", "aquatic", "flight", "tree" or nil (caster).
+local FORMS = { [1] = "cat", [2] = "tree", [3] = "travel", [4] = "aquatic", [5] = "bear", [8] = "bear",
+  [27] = "flight", [29] = "flight", [31] = "moonkin" }
+function API.Form()
+  local id = GetShapeshiftFormID and GetShapeshiftFormID()
+  return id and FORMS[id] or nil
+end
+
+-- The talent tree with the most points (Classic clients), or nil.
+function API.MainTree()
+  if not (GetNumTalentTabs and GetTalentTabInfo) then return nil end
+  local best, bestPoints = nil, 0
+  for i = 1, GetNumTalentTabs() do
+    local r = { GetTalentTabInfo(i) }
+    -- newer clients: id, name, description, icon, pointsSpent ...; older: name, icon, pointsSpent ...
+    local points = type(r[5]) == "number" and r[5] or type(r[3]) == "number" and r[3] or 0
+    if points > bestPoints then best, bestPoints = i, points end
+  end
+  return best
+end
+
+-- Retail: "melee" or "ranged" from your specialization, or nil.
+local MELEE_SPECS = { [71] = true, [72] = true, [73] = true, [259] = true, [260] = true, [261] = true,
+  [250] = true, [251] = true, [252] = true, [66] = true, [70] = true, [268] = true, [269] = true,
+  [577] = true, [581] = true, [103] = true, [104] = true, [263] = true, [255] = true }
+function API.SpecRole()
+  if not (GetSpecialization and GetSpecializationInfo) then return nil end
+  local index = GetSpecialization()
+  local id = index and GetSpecializationInfo(index)
+  if not id or issecret(id) then return nil end
+  return MELEE_SPECS[id] and "melee" or "ranged"
+end

@@ -150,7 +150,8 @@ local function build()
   label(win, "Display", 16, y)
   y = y - 18
   local tiles = {}
-  local function sampleZone(d) return ns.Zones.at(d, { { 8, 35 } }) end
+  local sample = { { 8, 35, "primary", "RANGED" }, { 0, 5, "secondary", "MELEE" } }   -- a hunter
+  local function sampleZone(d) return ns.Zones.at(d, sample) end
   local function showMode()
     for mode, tile in pairs(tiles) do
       local on = db.display == mode

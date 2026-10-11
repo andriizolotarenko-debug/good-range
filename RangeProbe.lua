@@ -34,7 +34,8 @@ ns.DEFAULTS = {
 local db
 local est = ns.Estimator.new()
 local groups = {}        -- ascending by range: { range, harmItem, friendItem, interact, spells }
-local zones = { harm = {}, help = {} }   -- work intervals { {a, b}, ... } per target kind
+local spellbook = { known = {}, generic = { harm = {}, help = {} } }   -- filled by build()
+local spans, spanKey = {}, ""   -- the zones for the current target (see Zones.build)
 local secrets = { spell = 0, item = 0, speed = 0 }
 
 local function say(msg) print("|cff66ccffRange Probe|r " .. msg) end
@@ -93,14 +94,8 @@ local function build()
       end
     end
   end
-  -- Zones: your class's key abilities at the ranges the game reports for you.
-  local _, class = UnitClass("player")
-  local list = ns.Zones.CLASS[class] or {}
-  ns.diag = { spells = 0, class = class, harm = ns.Zones.known(list.harm, known, API.GetSpellInfo),
-    help = ns.Zones.known(list.help, known, API.GetSpellInfo) }
-  for _ in pairs(known) do ns.diag.spells = ns.diag.spells + 1 end
-  zones.harm = ns.Zones.fromList(list.harm, known, API.GetSpellInfo) or ns.Zones.merge(harmWork)
-  zones.help = ns.Zones.fromList(list.help, known, API.GetSpellInfo) or ns.Zones.merge(helpWork)
+  spellbook.known = known
+  spellbook.generic = { harm = ns.Zones.merge(harmWork), help = ns.Zones.merge(helpWork) }
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -221,9 +216,32 @@ end
 
 local hostileTarget = true
 
--- d in yd. Melee always wins up close.
+local _, playerClass = UnitClass("player")
+local RETAIL = interface >= 100000
+
+-- Rebuilds the zones from what you can use right now (form, rage / mana, cooldowns, weapon,
+-- combat); true if they changed.
+local function refreshZones()
+  local ctx = {
+    class = playerClass, hostile = hostileTarget, known = spellbook.known, generic = spellbook.generic,
+    getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
+    form = playerClass == "DRUID" and API.Form() or nil,
+    mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
+    primaryRole = RETAIL and API.SpecRole() or nil,
+  }
+  local new, diag = ns.Zones.build(ctx)
+  ns.diag = { class = playerClass, form = ctx.form, mainTree = ctx.mainTree, spells = diag }
+  local parts = {}
+  for _, sp in ipairs(new) do parts[#parts + 1] = table.concat(sp, ",") end
+  local key = table.concat(parts, ";")
+  if key == spanKey then return false end
+  spans, spanKey = new, key
+  return true
+end
+
+-- d in yd -> kind, badge text
 local function zoneAt(d)
-  return ns.Zones.at(d, hostileTarget and zones.harm or zones.help)
+  return ns.Zones.at(d, spans)
 end
 
 -- UI ----------------------------------------------------------------------------------------
@@ -251,7 +269,10 @@ local function place()
 end
 
 tape:SetZones(zoneAt)
-function ns.OnZonesChanged() tape:SetZones(zoneAt) end
+function ns.OnZonesChanged()
+  refreshZones()
+  tape:SetZones(zoneAt)
+end
 
 function ns.ApplyLayout()
   if not db then return end
@@ -265,6 +286,8 @@ end
 local goal, goalLabel        -- what the tape slides towards (display units) and its label
 local shown                  -- what the tape shows now
 local acc, clock = 0, 0
+local ZONE_EVERY = 0.25    -- s between checks of what you can use (rage, form, cooldowns ...)
+local zoneClock = 0
 local driver = CreateFrame("Frame")
 driver:Hide()
 driver:SetScript("OnUpdate", function(_, elapsed)
@@ -277,9 +300,11 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
   local hostile = UnitCanAttack("player", unit)
   if issecret(hostile) then hostile = true end
-  if hostile ~= hostileTarget then
+  zoneClock = zoneClock + dt
+  if hostile ~= hostileTarget or zoneClock >= ZONE_EVERY then
     hostileTarget = hostile
-    tape:SetZones(zoneAt)
+    zoneClock = 0
+    if refreshZones() then tape:SetZones(zoneAt) end
   end
 
   local lo, hi = measure(unit, hostile, clock)
@@ -340,23 +365,26 @@ local function printStats()
     :format(s.n, s.midn > 0 and s.mid / s.midn or 0, s.a / s.n, s.b / s.n, s.amax, s.bmax))
 end
 
-local function zoneText(z)
-  local parts = { "melee 0-" .. MELEE }
-  for _, r in ipairs(z) do parts[#parts + 1] = ("work %g-%g"):format(r[1], r[2]) end
-  return #parts > 0 and table.concat(parts, ", ") or "none"
-end
-
 local function printList()
+  refreshZones()
   say(("%d range steps. Secret results so far: spell %d, item %d, speed %d. Own position: %s.")
     :format(#groups, secrets.spell, secrets.item, secrets.speed, playerPos() and "yes" or "hidden"))
-  say("zones on enemies: " .. zoneText(zones.harm) .. "; on friends: " .. zoneText(zones.help))
-  local d = ns.diag or {}
-  local keys = {}
-  for _, k in ipairs(d.harm or {}) do
-    keys[#keys + 1] = ("%s %g-%g%s"):format(k[1], k[2], k[3], k[4] and "" or " (default)")
+  local zoneParts = {}
+  for _, sp in ipairs(spans) do
+    zoneParts[#zoneParts + 1] = ("%s %g-%g (%s)"):format(sp[4], sp[1], sp[2], sp[3])
   end
-  say(("%s, %d spells in the spellbook. Key spells: %s"):format(d.class or "?", d.spells or 0,
-    #keys > 0 and table.concat(keys, ", ") or "none found"))
+  local d = ns.diag or {}
+  local count = 0
+  for _ in pairs(spellbook.known) do count = count + 1 end
+  say(("%s%s%s, %d spells in the spellbook, %s target. Zones: %s"):format(d.class or "?",
+    d.form and (" in " .. d.form .. " form") or "", d.mainTree and (", talent tree " .. d.mainTree) or "",
+    count, hostileTarget and "enemy" or "friendly", #zoneParts > 0 and table.concat(zoneParts, ", ") or "none"))
+  local keys = {}
+  for _, k in ipairs(d.spells or {}) do
+    keys[#keys + 1] = ("%s %g-%g%s%s"):format(k[1], k[3], k[4], k[5] and "" or " (default)",
+      k[6] == false and " (not usable now)" or "")
+  end
+  say("Class spells: " .. (#keys > 0 and table.concat(keys, ", ") or "none found"))
   for _, g in ipairs(groups) do
     local parts = {}
     if g.harmItem then parts[#parts + 1] = "harm item " .. g.harmItem end
@@ -446,6 +474,7 @@ events:SetScript("OnEvent", function(_, event)
     if UnitExists("target") then
       local hostile = UnitCanAttack("player", "target")
       hostileTarget = issecret(hostile) or hostile
+      refreshZones()
       tape:SetZones(zoneAt)
     end
     ns.RefreshShown()

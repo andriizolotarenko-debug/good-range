@@ -37,11 +37,11 @@ Tape.FONTS = {
 local DIGIT = { [MEDIA .. "Changa-Bold.ttf"] = { D = 0.725, R = 0.13 } }
 local DEFAULT_DIGIT = { D = 0.72, R = 0.1 }
 
-Tape.LABELS = { melee = "MELEE", work = "RANGED", dead = "DEAD ZONE", far = "OUT OF RANGE" }
-
+-- zone kinds (see Zones.lua): green your role's range, blue another usable one, red the dead
+-- zone, grey out of range
 Tape.COLORS = {
-  melee = { 0.302, 0.659, 1 },
-  work = { 0.373, 0.878, 0.416 },
+  primary = { 0.373, 0.878, 0.416 },
+  secondary = { 0.302, 0.659, 1 },
   dead = { 0.95, 0.33, 0.31 },
   far = { 0.545, 0.565, 0.6 },
 }
@@ -128,7 +128,7 @@ function Tape.New(parent, name)
   return self
 end
 
--- zoneAt(d) -> "melee" / "work" / "dead" / "far"
+-- zoneAt(d) -> kind ("primary" / "secondary" / "dead" / "far"), badge text
 function Tape:SetZones(zoneAt)
   self.zoneAt = zoneAt
   self.first, self.zone = nil, nil   -- restyle on the next draw
@@ -170,7 +170,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   self.badgeText:SetPoint("CENTER", self.badge, "CENTER", 0, -m.R * textSize)
   self.badgeText:SetTextColor(0.06, 0.06, 0.07)
   local longest = 0
-  for _, text in pairs(Tape.LABELS) do
+  for _, text in ipairs(ns.Zones.LABELS) do
     self.badgeText:SetText(text)
     longest = math.max(longest, self.badgeText:GetStringWidth() or 0)
   end
@@ -288,16 +288,16 @@ function Tape:Draw(v, label)
     self.ruler:SetPoint("TOPLEFT", self.area, "TOPLEFT", cx + (first / 10 - v) * ppy, 0)
   end
 
-  local zone = self.zoneAt(v)
+  local zone, badge = self.zoneAt(v)
   label = label or tostring(math.floor(v))
-  if label ~= self.text or zone ~= self.zone then
-    self.text, self.zone = label, zone
+  if label ~= self.text or zone ~= self.zone or badge ~= self.badgeLabel then
+    self.text, self.zone, self.badgeLabel = label, zone, badge
     local c = Tape.COLORS[zone]
     self.number:SetText(label)
     self.number:SetTextColor(c[1], c[2], c[3])
     self.unit:SetTextColor(c[1], c[2], c[3])
     if not self.showTape then
-      self.badgeText:SetText(Tape.LABELS[zone])
+      self.badgeText:SetText(badge)
       for _, t in ipairs({ self.capL, self.mid, self.capR }) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
     end
   end
