@@ -9,16 +9,14 @@ local YD_TO_M = 0.9144
 local MELEE = 5
 
 ns.DEFAULTS = {
-  width = 280, height = 40, fontSize = 30, ppy = 57, strip = true,
+  width = 224, height = 32, fontSize = 24, ppy = 46, strip = true,
   unlocked = false, details = false, log = false, noPos = false, meters = false,
 }
 
 local db
 local est = ns.Estimator.new()
 local groups = {}        -- ascending by range: { range, harmItem, friendItem, interact, spells }
-local zones = { harm = { work = {} }, help = { work = {} } }
-local meleeCandidates = {}   -- harmful spells of melee reach; a real range check proves one
-local meleeProven = {}       -- spellID -> true once it answered a range check on an enemy
+local zones = { harm = {}, help = {} }   -- work intervals { {a, b}, ... } per target kind
 local secrets = { spell = 0, item = 0, speed = 0 }
 local targetSpeedSecret = false
 
@@ -90,31 +88,23 @@ local function build()
   for index, range in pairs(INTERACT_RACE[race] or INTERACT) do group(range).interact = index end
 
   local harmWork, helpWork = {}, {}
-  wipe(meleeCandidates)
   for _, id in ipairs(spellbookSpells()) do
     local info = C_Spell.GetSpellInfo(id)
     if info then
       local min, max = info.minRange or 0, info.maxRange or 0
       -- A spell with a minimum range says "false" up close too, so it can't bound the bracket.
       if max > 0 and min == 0 then table.insert(group(max).spells, id) end
-      -- Zones. Melee abilities report no range, like self-centred AoEs, so they are only
-      -- candidates until a range check on an enemy answers for one (see probeMelee).
+      -- Zones: what reaches beyond melee. Melee itself is always marked (see zoneAt).
       local harmful, helpful = C_Spell.IsSpellHarmful(id), C_Spell.IsSpellHelpful(id)
-      if harmful and max <= MELEE then
-        meleeCandidates[#meleeCandidates + 1] = id
-      elseif harmful then
+      if harmful and max > MELEE then
         harmWork[#harmWork + 1] = { min, max }
       elseif helpful and max > 0 then
         helpWork[#helpWork + 1] = { min, max }
       end
     end
   end
-  local melee = false
-  for _, id in ipairs(meleeCandidates) do
-    if meleeProven[id] then melee = true end
-  end
-  zones.harm = { melee = melee, work = merge(harmWork) }
-  zones.help = { melee = false, work = merge(helpWork) }
+  zones.harm = merge(harmWork)
+  zones.help = merge(helpWork)
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -123,6 +113,8 @@ local function build()
     end
   end
   table.sort(groups, function(a, b) return a.range < b.range end)
+  if ns.ForgetBracket then ns.ForgetBracket() end
+  if ns.OnZonesChanged then ns.OnZonesChanged() end
 end
 
 local rebuildPending
@@ -164,20 +156,50 @@ local function check(g, unit, hostile, restricted)
   return nil
 end
 
-local function measure(unit, hostile)
-  local restricted = InCombatLockdown() and not hostile
-  local hi
-  local outs = {}
-  for _, g in ipairs(groups) do
+-- lo: the largest step reported out (below hi), hi: the smallest step reported in.
+local function scan(unit, hostile, restricted, from, to)
+  local hi, hiI
+  for i = from, to do
+    local g = groups[i]
     local r = check(g, unit, hostile, restricted)
     g.result = r
-    if r == true and not hi then hi = g.range end
-    if r == false then outs[#outs + 1] = g.range end
+    if r == true and not hi then hi, hiI = g.range, i end
   end
-  local lo = 0
-  for _, r in ipairs(outs) do
-    if (not hi or r < hi) and r > lo then lo = r end
+  local lo, loI = 0, nil
+  for i = from, to do
+    local g = groups[i]
+    if g.result == false and (not hi or g.range < hi) and g.range > lo then lo, loI = g.range, i end
   end
+  return lo, hi, loI, hiI
+end
+
+-- Checking every step is the expensive part, so between full scans only the steps around the
+-- last bracket are checked. A full scan runs every FULL_EVERY s, on a new target, and whenever
+-- the answer could lie outside that window.
+local FULL_EVERY = 0.5
+local nextFull, loIdx, hiIdx = 0, nil, nil
+
+function ns.ForgetBracket()
+  nextFull, loIdx, hiIdx = 0, nil, nil
+end
+
+local function measure(unit, hostile, now)
+  local restricted = InCombatLockdown() and not hostile
+  local n = #groups
+  local lo, hi, loI, hiI
+  if now < nextFull and (loIdx or hiIdx) then
+    local from = math.max(1, (loIdx or 1) - 1)
+    local to = math.min(n, (hiIdx or n) + 1)
+    lo, hi, loI, hiI = scan(unit, hostile, restricted, from, to)
+    local outside = (not hi and to < n) or (hiI == from and from > 1) or (not loI and from > 1)
+    if not outside then
+      loIdx, hiIdx = loI, hiI
+      return lo, hi
+    end
+  end
+  lo, hi, loI, hiI = scan(unit, hostile, restricted, 1, n)
+  loIdx, hiIdx = loI, hiI
+  nextFull = now + FULL_EVERY
   return lo, hi
 end
 
@@ -212,26 +234,12 @@ end
 
 -- Zones -------------------------------------------------------------------------------------
 
--- A spell with melee reach that gives a range answer on an enemy is a melee ability.
-local function probeMelee(unit)
-  if zones.harm.melee then return end
-  for _, id in ipairs(meleeCandidates) do
-    local v = C_Spell.IsSpellInRange(id, unit)
-    if not issecret(v) and v ~= nil then
-      meleeProven[id] = true
-      zones.harm.melee = true
-      return
-    end
-  end
-end
-
 local hostileTarget = true
 
--- d in yd. Melee wins up close for classes that have melee abilities.
+-- d in yd. Melee always wins up close.
 local function zoneAt(d)
-  local z = hostileTarget and zones.harm or zones.help
-  if z.melee and d <= MELEE then return "melee" end
-  for _, r in ipairs(z.work) do
+  if d <= MELEE then return "melee" end
+  for _, r in ipairs(hostileTarget and zones.harm or zones.help) do
     if d >= r[1] and d <= r[2] then return "work" end
     if r[1] > d then break end
   end
@@ -262,10 +270,8 @@ local function place()
   root:ClearAllPoints()
   if db.pos then
     root:SetPoint(db.pos[1], UIParent, db.pos[2], db.pos[3], db.pos[4])
-  elseif TargetFrame then
-    root:SetPoint("TOP", TargetFrame, "BOTTOM", -20, 4)
   else
-    root:SetPoint("CENTER", UIParent, "CENTER", 0, -120)
+    root:SetPoint("CENTER", UIParent, "CENTER", 0, 110)   -- roughly above the character
   end
 end
 
@@ -287,6 +293,7 @@ local function displayZoneAt(d)
   return zoneAt(db.meters and d / YD_TO_M or d)
 end
 tape:SetZones(displayZoneAt)
+function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
 
 function ns.ApplyLayout()
   if not db then return end
@@ -315,10 +322,13 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
   local hostile = UnitCanAttack("player", unit)
   if issecret(hostile) then hostile = true end
-  hostileTarget = hostile
-  if hostile then probeMelee(unit) end
+  if hostile ~= hostileTarget then
+    hostileTarget = hostile
+    tape:SetZones(displayZoneAt)
+function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
+  end
 
-  local lo, hi = measure(unit, hostile)
+  local lo, hi = measure(unit, hostile, clock)
   local ts = speedOf(unit)
   local sp = (speedOf("player") or 0) + (ts or 0)
   local px, py = playerPos()
@@ -359,7 +369,9 @@ root:SetScript("OnUpdate", function(_, elapsed)
     if not db.unlocked then return end
     goal, goalLabel = conv(21.4), tostring(math.floor(conv(21.4)))   -- sample while unlocked
   end
+  if shown == goal then return end
   shown = shown and shown + (goal - shown) * math.min(1, elapsed * 14) or goal
+  if math.abs(goal - shown) < 0.002 then shown = goal end
   tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
 end)
 
@@ -383,9 +395,8 @@ local function printStats()
 end
 
 local function zoneText(z)
-  local parts = {}
-  if z.melee then parts[#parts + 1] = "melee 0-" .. MELEE end
-  for _, r in ipairs(z.work) do parts[#parts + 1] = ("work %g-%g"):format(r[1], r[2]) end
+  local parts = { "melee 0-" .. MELEE }
+  for _, r in ipairs(z) do parts[#parts + 1] = ("work %g-%g"):format(r[1], r[2]) end
   return #parts > 0 and table.concat(parts, ", ") or "none"
 end
 
@@ -442,6 +453,11 @@ events:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
     RangeProbeDB = RangeProbeDB or {}
     db = RangeProbeDB
+    if (db.layoutVersion or 1) < 2 then
+      -- v2: 20% smaller tape, placed above the character
+      db.width, db.height, db.fontSize, db.ppy, db.pos = nil, nil, nil, nil, nil
+      db.layoutVersion = 2
+    end
     for k, v in pairs(ns.DEFAULTS) do
       if db[k] == nil then db[k] = v end
     end
@@ -456,9 +472,11 @@ events:SetScript("OnEvent", function(_, event)
     est:reset()
     targetSpeedSecret = false
     goal, shown = nil, nil
+    ns.ForgetBracket()
     if UnitExists("target") then
       local hostile = UnitCanAttack("player", "target")
       hostileTarget = issecret(hostile) or hostile
+      tape:SetZones(displayZoneAt)
     end
     ns.RefreshShown()
   else

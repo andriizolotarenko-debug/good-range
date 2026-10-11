@@ -56,3 +56,13 @@ img.paste(grad, (0, 0), fill)
 img = img.resize((64, 64), Image.LANCZOS)
 img.save("media/needle.tga")
 print("media/needle.tga", img.size)
+
+# media/fade_mask.tga: side fade for the tape ticks (grey = alpha, so either mask channel works)
+mask = Image.new("RGBA", (256, 16))
+for x in range(256):
+    t = abs((x + 0.5) / 256 * 2 - 1)
+    v = round(255 * max(0.0, 1 - t ** 2.2))
+    for y in range(16):
+        mask.putpixel((x, y), (v, v, v, v))
+mask.save("media/fade_mask.tga")
+print("media/fade_mask.tga", mask.size)
