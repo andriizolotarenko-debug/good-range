@@ -30,14 +30,12 @@ Tape.FONTS = {
   { "Fonts\\MORPHEUS.TTF", "Morpheus" },
 }
 
--- Where the digits sit inside a line of text, as parts of the string height: below the baseline
--- (descender) and the digit height. Changa's baseline comes from its font file; its digit height
--- was measured on screen in game (the file's own numbers come out far too small). A rough guess
--- for the other fonts.
-local METRICS = {
-  [MEDIA .. "Changa-Bold.ttf"] = { desc = 613 / 1840, digit = 0.86 },
-}
-local DEFAULT_METRICS = { desc = 0.22, digit = 0.72 }
+-- Digit height as a part of the font size (Changa's digits are 640 of its 1000 units; a rough
+-- guess for the other fonts). Everything is placed from the font size and from the centre of
+-- the text: the height a client reports for a line of text differs between Retail and Classic,
+-- while digits sit in the middle of the line in all of them (in Changa within 1%).
+local DIGIT = { [MEDIA .. "Changa-Bold.ttf"] = 0.64 }
+local DEFAULT_DIGIT = 0.7
 
 Tape.LABELS = { melee = "MELEE", work = "RANGED", dead = "DEAD ZONE", far = "OUT OF RANGE" }
 
@@ -149,20 +147,16 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
 
   font = font or FALLBACK_FONT
   setFont(self.number, font, fontSize, "OUTLINE")
-  setFont(self.unit, font, math.max(8, math.floor(fontSize * 0.45 + 0.5)), "OUTLINE")
+  setFont(self.unit, font, math.max(8, math.floor(fontSize * 0.45 + 0.5)), "OUTLINE")   -- "yd"
   for _, fs in ipairs({ self.number, self.unit }) do
     fs:SetShadowOffset(1, -1)
     fs:SetShadowColor(0, 0, 0, 0.9)
   end
   self.unit:SetText("yd")   -- only once a font is set: text on a font-less string errors
 
-  -- where the digits sit in the number's box
-  local m = METRICS[font] or DEFAULT_METRICS
-  self.number:SetText("0")
-  local h = self.number:GetStringHeight()
-  if not h or h <= 0 then h = fontSize end
-  local desc = math.floor(h * m.desc + 0.5)          -- box bottom -> digit baseline
-  local digitH = math.max(6, math.floor(h * m.digit + 0.5))
+  local digitH = math.max(6, math.floor(fontSize * (DIGIT[font] or DEFAULT_DIGIT) + 0.5))
+  local unitSize = math.max(8, math.floor(fontSize * 0.45 + 0.5))   -- same as the "yd" font above
+  local unitH = unitSize * (DIGIT[font] or DEFAULT_DIGIT)
 
   -- badge: as tall as the digits; one width for every label (the longest), so nothing shifts
   self.badge:SetHeight(digitH)
@@ -181,11 +175,12 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   self.number:ClearAllPoints()
   self.unit:ClearAllPoints()
   self.badge:ClearAllPoints()
+  -- the digits' middle line: 3 px above the tape, or the middle of the label row
   if self.showTape then
     -- tape: the number is centred on its own digits over the needle; "yd" hangs off its right
     self.number:SetJustifyH("CENTER")
     self.root:SetSize(width, height + digitH + 4)
-    self.number:SetPoint("BOTTOM", self.area, "TOP", 0, 3 - desc)
+    self.number:SetPoint("CENTER", self.area, "TOP", 0, 3 + digitH / 2)
   else
     -- label: [ badge ] [ number, right-aligned in a two-digit slot ] yd -- all fixed in place
     local gap = math.floor(fontSize * 0.25 + 0.5)
@@ -194,10 +189,11 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     local unitW = self.unit:GetStringWidth() or fontSize * 0.6
     self.number:SetJustifyH("RIGHT")
     self.root:SetSize(badgeW + gap + slot + 2 + unitW, digitH + 4)
-    self.badge:SetPoint("BOTTOMLEFT", self.root, "BOTTOMLEFT", 0, 2)
-    self.number:SetPoint("BOTTOMRIGHT", self.root, "BOTTOMLEFT", badgeW + gap + slot, 2 - desc)
+    self.badge:SetPoint("LEFT", self.root, "LEFT", 0, 0)
+    self.number:SetPoint("RIGHT", self.root, "LEFT", badgeW + gap + slot, 0)
   end
-  self.unit:SetPoint("BOTTOMLEFT", self.number, "BOTTOMRIGHT", 2, math.floor(fontSize * 0.08 + 0.5))
+  -- "yd" stands on the digits' baseline
+  self.unit:SetPoint("LEFT", self.number, "RIGHT", 2, -(digitH - unitH) / 2)
 
   -- backing plate: darkest at the ruler's bottom edge, clear at the top and to the sides
   local sw = width / SLICES

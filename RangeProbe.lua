@@ -96,6 +96,9 @@ local function build()
   -- Zones: your class's key abilities at the ranges the game reports for you.
   local _, class = UnitClass("player")
   local list = ns.Zones.CLASS[class] or {}
+  ns.diag = { spells = 0, class = class, harm = ns.Zones.known(list.harm, known, API.GetSpellInfo),
+    help = ns.Zones.known(list.help, known, API.GetSpellInfo) }
+  for _ in pairs(known) do ns.diag.spells = ns.diag.spells + 1 end
   zones.harm = ns.Zones.fromList(list.harm, known, API.GetSpellInfo) or ns.Zones.merge(harmWork)
   zones.help = ns.Zones.fromList(list.help, known, API.GetSpellInfo) or ns.Zones.merge(helpWork)
 
@@ -347,6 +350,13 @@ local function printList()
   say(("%d range steps. Secret results so far: spell %d, item %d, speed %d. Own position: %s.")
     :format(#groups, secrets.spell, secrets.item, secrets.speed, playerPos() and "yes" or "hidden"))
   say("zones on enemies: " .. zoneText(zones.harm) .. "; on friends: " .. zoneText(zones.help))
+  local d = ns.diag or {}
+  local keys = {}
+  for _, k in ipairs(d.harm or {}) do
+    keys[#keys + 1] = ("%s %g-%g%s"):format(k[1], k[2], k[3], k[4] and "" or " (default)")
+  end
+  say(("%s, %d spells in the spellbook. Key spells: %s"):format(d.class or "?", d.spells or 0,
+    #keys > 0 and table.concat(keys, ", ") or "none found"))
   for _, g in ipairs(groups) do
     local parts = {}
     if g.harmItem then parts[#parts + 1] = "harm item " .. g.harmItem end

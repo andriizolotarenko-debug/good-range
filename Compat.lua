@@ -65,7 +65,7 @@ function API.Spellbook()
         end
       end
     end
-    return out
+    if #out > 0 or not GetNumSpellTabs then return out end
   end
   local book = BOOKTYPE_SPELL or "spell"
   for tab = 1, GetNumSpellTabs() do
