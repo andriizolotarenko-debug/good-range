@@ -467,9 +467,10 @@ events:SetScript("OnEvent", function(_, event)
       if db[k] == nil then db[k] = v end
     end
     ns.db = db
+    db.unlocked = false   -- the tape is only unlocked while the settings window is open
     place()
     build()
-    ns.CreateOptions(db)
+    ns.CreateOptions()
     ns.ApplyLayout()
   elseif not db then
     return

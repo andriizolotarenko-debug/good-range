@@ -88,7 +88,7 @@ function Tape.New(parent)
   self.box:SetColorTexture(1, 0.82, 0, 0.12)
   self.hint = root:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   self.hint:SetPoint("TOP", root, "BOTTOM", 0, -2)
-  self.hint:SetText("Drag to move. Lock it again in Options > AddOns > Range Probe.")
+  self.hint:SetText("Drag to move. Closing the Range Probe window locks it.")
 
   self:SetUnlocked(false)
   return self
@@ -105,7 +105,9 @@ function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font)
   local k = height / BASE_H
   self.k = k
   self.base = math.floor(height - 12 * k + 0.5)   -- tick baseline, from the top of the tape area
-  self.root:SetSize(width, height + fontSize + 2)
+  -- digits leave the font's descender space empty; pull the number down over it
+  self.pull = math.floor(fontSize * 0.14 + 0.5)
+  self.root:SetSize(width, height + fontSize + 2 - self.pull)
   self.area:SetHeight(height)
 
   setFont(self.number, font or FALLBACK_FONT, fontSize)
@@ -228,7 +230,7 @@ function Tape:Draw(v, label)
     -- number + unit centred as one group
     local nw, uw, gap = self.number:GetStringWidth(), self.unit:GetStringWidth(), 2
     self.number:ClearAllPoints()
-    self.number:SetPoint("BOTTOMLEFT", self.area, "TOPLEFT", math.floor(cx - (nw + gap + uw) / 2 + 0.5), 1)
+    self.number:SetPoint("BOTTOMLEFT", self.area, "TOPLEFT", math.floor(cx - (nw + gap + uw) / 2 + 0.5), 1 - self.pull)
     self.unit:ClearAllPoints()
     self.unit:SetPoint("BOTTOMLEFT", self.number, "BOTTOMRIGHT", gap, math.floor(self.fontSize * 0.08 + 0.5))
   end
