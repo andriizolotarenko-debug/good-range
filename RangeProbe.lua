@@ -154,6 +154,7 @@ local function speedOf(unit)
 end
 
 local function playerPos()
+  if db and db.noPos then return nil end   -- /rp nopos: behave as in a dungeon
   local y, x = UnitPosition("player")
   if not y or issecret(y) or issecret(x) then return nil end
   return x, y
@@ -336,11 +337,17 @@ SlashCmdList.RANGEPROBE = function(msg)
   elseif msg == "m" or msg == "yd" then
     db.meters = msg == "m"
     say("units: " .. (db.meters and "metres" or "yards"))
+  elseif msg == "nopos" then
+    db.noPos = not db.noPos
+    est:reset()
+    est:resetStats()
+    say(db.noPos and "ignoring your position, as in a dungeon (stats cleared)"
+      or "using your position again (stats cleared)")
   elseif msg == "home" then
     db.pos = nil
     place()
   else
-    say("/rp log | stats | reset | list | m | yd | home   (Shift+drag moves the readout)")
+    say("/rp log | stats | reset | list | nopos | m | yd | home   (Shift+drag moves the readout)")
   end
 end
 
