@@ -94,7 +94,6 @@ function Tape.New(parent, name)
   self.mid:SetPoint("TOPLEFT", self.capL, "TOPRIGHT")
   self.mid:SetPoint("BOTTOMRIGHT", self.capR, "BOTTOMLEFT")
   self.badgeText = self.badge:CreateFontString(nil, "OVERLAY")
-  self.badgeText:SetPoint("CENTER", 0, 0)
 
   -- needle: head, stretched stem and tip, all sliced from one texture, on its own frame above
   -- the ruler (a child frame draws over its parent's textures whatever their layer)
@@ -164,7 +163,11 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   self.badge:SetHeight(digitH)
   self.capL:SetWidth(digitH / 2)
   self.capR:SetWidth(digitH / 2)
-  setFont(self.badgeText, font, math.max(7, math.floor(digitH * 0.5 + 0.5)), "")
+  local textSize = math.max(7, math.floor(digitH * 0.5 + 0.5))
+  setFont(self.badgeText, font, textSize, "")
+  -- capitals sit above the middle of their line like digits do: lower the text by that much
+  self.badgeText:ClearAllPoints()
+  self.badgeText:SetPoint("CENTER", self.badge, "CENTER", 0, -m.R * textSize)
   self.badgeText:SetTextColor(0.06, 0.06, 0.07)
   local longest = 0
   for _, text in pairs(Tape.LABELS) do
