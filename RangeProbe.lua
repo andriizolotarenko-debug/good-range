@@ -153,6 +153,12 @@ local function speedOf(unit)
   return v
 end
 
+local function playerPos()
+  local y, x = UnitPosition("player")
+  if not y or issecret(y) or issecret(x) then return nil end
+  return x, y
+end
+
 local function truth(unit)
   local y1, x1, _, i1 = UnitPosition("player")
   local y2, x2, _, i2 = UnitPosition(unit)
@@ -251,8 +257,11 @@ frame:SetScript("OnUpdate", function(_, elapsed)
   if issecret(hostile) then hostile = true end
 
   local lo, hi = measure(unit, hostile)
-  local sp = (speedOf("player") or 0) + (speedOf(unit) or 0)
-  local c = est:update(clock, dt, lo, hi, sp)
+  local ts = speedOf(unit)
+  local sp = (speedOf("player") or 0) + (ts or 0)
+  local px, py = playerPos()
+  -- An unknown target speed counts as standing; the next crossing corrects a wrong guess.
+  local c = est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
   local a, b = est:valueA(clock, lo, hi), est:valueB(lo, hi)
   local real = truth(unit)
 
@@ -265,7 +274,8 @@ frame:SetScript("OnUpdate", function(_, elapsed)
   end
   big:SetTextColor(col[1], col[2], col[3])
   line1:SetText(("%s   A %s   B %s"):format(bracketText(lo, hi), fmt(a), fmt(b)))
-  line2:SetText(("%s   speed %.1f%s"):format(real and ("true " .. fmt(real)) or "true ?", sp,
+  line2:SetText(("%s   B by %s   speed %.1f%s"):format(real and ("true " .. fmt(real)) or "true ?",
+    est:mode() == "pos" and "position" or "rate", sp,
     targetSpeedSecret and " (target speed hidden)" or ""))
 
   if c and db.log then
@@ -297,8 +307,8 @@ local function printStats()
 end
 
 local function printList()
-  say(("%d range steps, %d zone spells. Secret results so far: spell %d, item %d, speed %d.")
-    :format(#groups, #zoneSpells, secrets.spell, secrets.item, secrets.speed))
+  say(("%d range steps, %d zone spells. Secret results so far: spell %d, item %d, speed %d. Own position: %s.")
+    :format(#groups, #zoneSpells, secrets.spell, secrets.item, secrets.speed, playerPos() and "yes" or "hidden"))
   for _, g in ipairs(groups) do
     local parts = {}
     if g.harmItem then parts[#parts + 1] = "harm item " .. g.harmItem end
