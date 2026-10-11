@@ -26,10 +26,17 @@ function ns.CreateOptions(db)
   checkbox(cat, "unlocked", "Unlock to move",
     "Shows the tape even without a target. Drag it anywhere, then untick to lock it.", db)
   layout:AddInitializer(CreateSettingsButtonInitializer("Position", "Reset",
-    function() ns.ResetPosition() end, "Puts the tape back under the target frame.", true))
+    function() ns.ResetPosition() end, "Puts the tape back above your character.", true))
   slider(cat, "width", "Width", 160, 480, 10, "Width of the tape.", db)
   slider(cat, "height", "Height", 24, 80, 1, "Height of the tape. Ticks and the needle scale with it.", db)
   slider(cat, "fontSize", "Font size", 12, 48, 1, "Size of the distance on top of the tape.", db)
+  local fontSetting = Settings.RegisterProxySetting(cat, "RANGEPROBE_FONT", "string", "Font",
+    ns.DEFAULTS.font, function() return db.font end, function(v) db.font = v; ns.ApplyLayout() end)
+  Settings.CreateDropdown(cat, fontSetting, function()
+    local c = Settings.CreateControlTextContainer()
+    for _, f in ipairs(ns.Tape.FONTS) do c:Add(f[1], f[2]) end
+    return c:GetData()
+  end, "Font of the distance. All are built into the game.")
   slider(cat, "ppy", "Scale", 20, 100, 1, "Pixels per yard: higher spreads the ticks out.", db)
   checkbox(cat, "strip", "Zone strip", "A thin coloured line under the ticks.", db)
   checkbox(cat, "meters", "Metres", "Show metres instead of yards.", db)

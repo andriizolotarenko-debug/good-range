@@ -12,8 +12,17 @@ Tape.__index = Tape
 ns.Tape = Tape
 
 local MEDIA = "Interface\\AddOns\\RangeProbe\\media\\"
-local FONT = MEDIA .. "Changa-Bold.ttf"
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
+
+-- Built-in fonts to choose from (Options > Font).
+Tape.FONTS = {
+  { "Fonts\\skurri.ttf", "Skurri (combat numbers)" },
+  { "Fonts\\ARIALN.TTF", "Arial Narrow" },
+  { "Fonts\\2002B.ttf", "2002 Bold" },
+  { "Fonts\\FRIZQT__.TTF", "Friz Quadrata" },
+  { "Fonts\\NIM_____.ttf", "Nimrod" },
+  { "Fonts\\MORPHEUS.TTF", "Morpheus" },
+}
 local SLICES = 28          -- backing plate columns (each a vertical gradient)
 local BASE_H = 40          -- design height; tick sizes scale with height / BASE_H
 
@@ -28,8 +37,8 @@ local function fade(x, cx)
   return f > 0 and f or 0
 end
 
-local function setFont(fs, size)
-  if not fs:SetFont(FONT, size, "OUTLINE") then fs:SetFont(FALLBACK_FONT, size, "OUTLINE") end
+local function setFont(fs, font, size)
+  if not fs:SetFont(font, size, "OUTLINE") then fs:SetFont(FALLBACK_FONT, size, "OUTLINE") end
   fs:SetShadowOffset(1, -1)
   fs:SetShadowColor(0, 0, 0, 0.9)
 end
@@ -90,7 +99,7 @@ function Tape:SetZones(zoneAt)
   self.first = nil   -- restyle on the next draw
 end
 
-function Tape:SetLayout(width, height, fontSize, ppy, showStrip)
+function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font)
   self.width, self.height, self.fontSize, self.ppy, self.showStrip = width, height, fontSize, ppy, showStrip
   local k = height / BASE_H
   self.k = k
@@ -98,8 +107,8 @@ function Tape:SetLayout(width, height, fontSize, ppy, showStrip)
   self.root:SetSize(width, height + fontSize + 2)
   self.area:SetHeight(height)
 
-  setFont(self.number, fontSize)
-  setFont(self.unit, math.max(8, math.floor(fontSize * 0.45 + 0.5)))
+  setFont(self.number, font or FALLBACK_FONT, fontSize)
+  setFont(self.unit, font or FALLBACK_FONT, math.max(8, math.floor(fontSize * 0.45 + 0.5)))
 
   -- backing plate: clear at the top, darkest at the zone strip, faded out to the sides
   local plateH = self.base + 5 * k

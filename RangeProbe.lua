@@ -9,7 +9,7 @@ local YD_TO_M = 0.9144
 local MELEE = 5
 
 ns.DEFAULTS = {
-  width = 224, height = 32, fontSize = 24, ppy = 46, strip = true,
+  width = 224, height = 32, fontSize = 24, ppy = 46, strip = true, font = "Fonts\\skurri.ttf",
   unlocked = false, details = false, log = false, noPos = false, meters = false,
 }
 
@@ -298,7 +298,7 @@ function ns.OnZonesChanged() tape:SetZones(displayZoneAt) end
 function ns.ApplyLayout()
   if not db then return end
   tape.unitName = db.meters and "m" or "yd"
-  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.strip)
+  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.strip, db.font)
   tape:SetUnlocked(db.unlocked)
   line1:SetShown(db.details)
   line2:SetShown(db.details)
