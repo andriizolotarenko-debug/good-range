@@ -66,7 +66,6 @@ function Tape.New(parent)
 
   self.number = root:CreateFontString(nil, "OVERLAY")
   self.unit = root:CreateFontString(nil, "OVERLAY")
-  self.unit:SetText("yd")
 
   -- badge for the no-tape mode: the zone name in dark text on the zone colour
   self.badge = CreateFrame("Frame", nil, root)
@@ -128,6 +127,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font, showTape)
   font = font or FALLBACK_FONT
   setFont(self.number, font, fontSize)
   setFont(self.unit, font, math.max(8, math.floor(fontSize * 0.45 + 0.5)))
+  self.unit:SetText("yd")   -- only once a font is set: text on a font-less string errors
   local badgeSize = math.max(8, math.floor(fontSize * 0.42 + 0.5))
   if not self.badgeText:SetFont(font, badgeSize, "") then self.badgeText:SetFont(FALLBACK_FONT, badgeSize, "") end
   self.badgeSize = badgeSize
