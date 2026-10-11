@@ -5,12 +5,25 @@
 local _, ns = ...
 
 local issecret = issecretvalue or function() return false end
+local API = ns.API
 local TICK = 0.05
 local MELEE = ns.Zones.MELEE
 
--- Classic Era and WoW: Forever (interface 1xxxx) use their own range items.
+-- Range items: Classic Era and WoW: Forever (interface 1xxxx) prefer the Era list, the rest the
+-- modern one; each falls back on the other, and only items the client knows are used.
 local interface = select(4, GetBuildInfo())
 local CLASSIC_RULES = interface < 20000
+
+local function itemLists(a, b)
+  local out = {}
+  for _, list in ipairs({ a, b }) do
+    for range, ids in pairs(list) do
+      out[range] = out[range] or {}
+      for _, id in ipairs(ids) do table.insert(out[range], id) end
+    end
+  end
+  return out
+end
 
 ns.DEFAULTS = {
   width = 130, height = 31, fontSize = 32, ppy = 20, strip = true, tape = true,
@@ -40,7 +53,8 @@ local function group(range)
 end
 
 local function itemReady(id)
-  return C_Item.IsItemDataCachedByID(id) and C_Item.GetItemInfo(id) ~= nil
+  local getInfo = C_Item.GetItemInfo or GetItemInfo
+  return C_Item.IsItemDataCachedByID(id) and getInfo(id) ~= nil
 end
 
 local function pickItem(ids)
@@ -50,46 +64,30 @@ local function pickItem(ids)
   end
 end
 
-local function spellbookSpells()
-  local out = {}
-  local bank = Enum.SpellBookSpellBank.Player
-  for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
-    local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
-    if info and not info.shouldHide then
-      for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
-        local item = C_SpellBook.GetSpellBookItemInfo(i, bank)
-        if item and item.itemType == Enum.SpellBookItemType.Spell and not item.isPassive
-            and not item.isOffSpec and item.spellID then
-          out[#out + 1] = item.spellID
-        end
-      end
-    end
-  end
-  return out
-end
-
 local INTERACT = { [3] = 8, [4] = 28 }
 local INTERACT_RACE = { Tauren = { [3] = 6, [4] = 25 }, Scourge = { [3] = 7, [4] = 27 } }
 
 local function build()
   wipe(groups)
-  local harmItems = CLASSIC_RULES and ns.ERA_HARM_ITEMS or ns.HARM_ITEMS
-  local friendItems = CLASSIC_RULES and ns.ERA_FRIEND_ITEMS or ns.FRIEND_ITEMS
+  local harmItems = CLASSIC_RULES and itemLists(ns.ERA_HARM_ITEMS, ns.HARM_ITEMS)
+    or itemLists(ns.HARM_ITEMS, ns.ERA_HARM_ITEMS)
+  local friendItems = CLASSIC_RULES and itemLists(ns.ERA_FRIEND_ITEMS, ns.FRIEND_ITEMS)
+    or itemLists(ns.FRIEND_ITEMS, ns.ERA_FRIEND_ITEMS)
   for range, ids in pairs(harmItems) do group(range).harmItem = pickItem(ids) end
   for range, ids in pairs(friendItems) do group(range).friendItem = pickItem(ids) end
   local _, race = UnitRace("player")
   for index, range in pairs(INTERACT_RACE[race] or INTERACT) do group(range).interact = index end
 
   local harmWork, helpWork, known = {}, {}, {}
-  for _, id in ipairs(spellbookSpells()) do
-    local info = C_Spell.GetSpellInfo(id)
+  for _, id in ipairs(API.Spellbook()) do
+    local info = API.GetSpellInfo(id)
     if info then
       known[info.name] = id
       local min, max = info.minRange or 0, info.maxRange or 0
       -- A spell with a minimum range says "false" up close too, so it can't bound the bracket.
       if max > 0 and min == 0 then table.insert(group(max).spells, id) end
       -- Fallback zones for classes / clients the list in Zones.lua does not cover.
-      local harmful, helpful = C_Spell.IsSpellHarmful(id), C_Spell.IsSpellHelpful(id)
+      local harmful, helpful = API.IsSpellHarmful(id), API.IsSpellHelpful(id)
       if harmful and max > MELEE then
         harmWork[#harmWork + 1] = { min, max }
       elseif helpful and max > 0 then
@@ -100,8 +98,8 @@ local function build()
   -- Zones: your class's key abilities at the ranges the game reports for you.
   local _, class = UnitClass("player")
   local list = ns.Zones.CLASS[class] or {}
-  zones.harm = ns.Zones.fromList(list.harm, known, C_Spell.GetSpellInfo) or ns.Zones.merge(harmWork)
-  zones.help = ns.Zones.fromList(list.help, known, C_Spell.GetSpellInfo) or ns.Zones.merge(helpWork)
+  zones.harm = ns.Zones.fromList(list.harm, known, API.GetSpellInfo) or ns.Zones.merge(harmWork)
+  zones.help = ns.Zones.fromList(list.help, known, API.GetSpellInfo) or ns.Zones.merge(helpWork)
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -125,12 +123,13 @@ end
 local function check(g, unit, hostile, restricted)
   local item = hostile and g.harmItem or g.friendItem
   if item and not restricted then
-    local v = C_Item.IsItemInRange(item, unit)
+    local v = API.IsItemInRange(item, unit)
     if issecret(v) then
       secrets.item = secrets.item + 1
     else
-      g.last = v and "item" or "item-"
-      return v and true or false
+      local inRange = v == true or v == 1
+      g.last = inRange and "item" or "item-"
+      return inRange
     end
   end
   if g.interact and not restricted then
@@ -141,7 +140,7 @@ local function check(g, unit, hostile, restricted)
     end
   end
   for _, id in ipairs(g.spells) do
-    local v = C_Spell.IsSpellInRange(id, unit)
+    local v = API.IsSpellInRange(id, unit)
     if issecret(v) then
       secrets.spell = secrets.spell + 1
     elseif v ~= nil then
@@ -440,7 +439,7 @@ events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 -- talents and gear can change spell ranges: rebuild the zones then
 for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
-  if not C_EventUtils or C_EventUtils.IsEventValid(e) then events:RegisterEvent(e) end
+  pcall(events.RegisterEvent, events, e)   -- not every client has every event
 end
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:SetScript("OnEvent", function(_, event)

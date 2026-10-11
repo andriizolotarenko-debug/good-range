@@ -154,7 +154,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, showStrip, font, showTape)
     t:ClearAllPoints()
     t:SetPoint("TOPLEFT", self.area, "TOPLEFT", (i - 1) * sw, 0)
     t:SetSize(sw + 0.5, plateH)
-    t:SetGradient("VERTICAL", CreateColor(0, 0, 0, a), CreateColor(0, 0, 0, 0))
+    ns.API.VerticalAlpha(t, a, 0)
   end
 
   -- needle, centred
