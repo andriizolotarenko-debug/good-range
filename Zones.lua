@@ -1,8 +1,8 @@
 -- Zones: where you can hit or heal from right now, for your class, form and role.
 --
 --   primary    (green) the range your role works from: melee for warriors, rogues, druids in
---              cat or bear form and Enhancement shamans; shots for hunters; spells for casters;
---              heals on friendly targets
+--              cat or bear form, Enhancement shamans and non-Holy paladins; shots for hunters;
+--              spells and wands for casters and healers; heals (or buffs) on friendly targets
 --   secondary  (blue, with its own badge) a range you could also use right now: CHARGE, THROW,
 --              SHOOT, WAND, a hunter's MELEE ... Only abilities you can use at this moment count:
 --              enough rage or mana, the right form, out of combat if the ability needs it, the
@@ -22,7 +22,7 @@ ns.Zones = Zones
 Zones.MELEE = 5
 
 -- every badge text, so the badge can be as wide as the longest
-Zones.LABELS = { "MELEE", "RANGED", "CHARGE", "THROW", "SHOOT", "WAND", "JUDGE", "SHOCK", "HEAL",
+Zones.LABELS = { "MELEE", "RANGED", "CHARGE", "THROW", "SHOOT", "JUDGE", "SHOCK", "HEAL", "BUFF",
   "DEAD ZONE", "OUT OF RANGE" }
 
 local function ids(min, max, ...)
@@ -63,17 +63,17 @@ Zones.CLASS = {
   MAGE = { primary = "ranged", harm = {
     -- Frostbolt, Arcane Missiles, Scorch; Fireball, Pyroblast; Fire Blast
     { "ranged", "RANGED", join(ids(0, 30, 116, 5143, 2948), ids(0, 35, 133, 11366), ids(0, 20, 2136)) },
-    { "wand", "WAND", WAND },
+    { "ranged", "RANGED", WAND },   -- a wand counts with the spells
   } },
   WARLOCK = { primary = "ranged", harm = {
     -- Shadow Bolt, Immolate, Corruption, Searing Pain, Curse of Agony
     { "ranged", "RANGED", ids(0, 30, 686, 348, 172, 5676, 980) },
-    { "wand", "WAND", WAND },
+    { "ranged", "RANGED", WAND },   -- a wand counts with the spells
   } },
   PRIEST = { primary = "ranged", harm = {
     -- Smite, Mind Blast, Shadow Word: Pain, Holy Fire; Mind Flay
     { "ranged", "RANGED", join(ids(0, 30, 585, 8092, 589, 14914), ids(0, 20, 15407)) },
-    { "wand", "WAND", WAND },
+    { "ranged", "RANGED", WAND },   -- a wand counts with the spells
   }, help = ids(0, 40, 2050, 2054, 2060, 2061, 139, 17) },   -- heals, Renew, PW:Shield
   DRUID = {
     primary = function(ctx) return (ctx.form == "cat" or ctx.form == "bear") and "melee" or "ranged" end,
@@ -93,7 +93,8 @@ Zones.CLASS = {
     },
     help = ids(0, 40, 331, 8004, 1064),   -- Healing Wave, Lesser Healing Wave, Chain Heal
   },
-  PALADIN = { primary = "melee", harm = {
+  -- Holy (most talent points in tree 1) heals and casts from range, the others fight in melee
+  PALADIN = { primary = function(ctx) return ctx.mainTree == 1 and "ranged" or "melee" end, harm = {
     { "judge", "JUDGE", ids(0, 10, 20271) },                       -- Judgement
     { "ranged", "RANGED", join(ids(0, 30, 879, 24275), ids(0, 20, 20473)) },   -- Exorcism, HoW, Holy Shock
   }, help = join(ids(0, 40, 635, 19750), ids(0, 20, 20473)) },     -- Holy Light, Flash of Light, Holy Shock
@@ -128,14 +129,15 @@ function Zones.build(ctx)
   local spans, diag = {}, {}
 
   if not ctx.hostile then
-    -- friendly target: your heals (or, without any, your helpful spells) are the working range
-    local work = {}
+    -- friendly target: your heals are the working range (HEAL); without any, your helpful
+    -- spells (BUFF)
+    local work, label = {}, "HEAL"
     for _, s in ipairs(def and def.help and knownSpells(def.help, ctx) or {}) do
       work[#work + 1] = { s[3], s[4] }
       diag[#diag + 1] = s
     end
-    if #work == 0 then work = ctx.generic.help end
-    for _, r in ipairs(Zones.merge(work)) do spans[#spans + 1] = { r[1], r[2], "primary", "HEAL" } end
+    if #work == 0 then work, label = ctx.generic.help, "BUFF" end
+    for _, r in ipairs(Zones.merge(work)) do spans[#spans + 1] = { r[1], r[2], "primary", label } end
     return spans, diag
   end
 
@@ -178,9 +180,9 @@ function Zones.build(ctx)
     end
   end
 
-  -- melee: your auto attack is always there
-  local melee = { 0, Zones.MELEE, primary == "melee" and "primary" or "secondary", "MELEE" }
-  if primary == "melee" then table.insert(spans, 1, melee) else secondary[#secondary + 1] = melee end
+  -- melee: your auto attack is always there, and it is always marked (blue for ranged roles,
+  -- even where your spells also reach)
+  table.insert(spans, 1, { 0, Zones.MELEE, primary == "melee" and "primary" or "secondary", "MELEE" })
   for _, s in ipairs(secondary) do spans[#spans + 1] = s end
   -- several spells often give the same span: keep one
   local seen, out = {}, {}
@@ -206,7 +208,8 @@ function Zones.merge(list)
   return out
 end
 
--- d in yd -> kind, label. Primary spans win over secondary ones; a gap below your furthest
+-- d in yd -> kind, label. The first span that covers d wins (melee, then primary, then
+-- secondary); a gap below your furthest
 -- reach is the dead zone, beyond it you are out of range.
 function Zones.at(d, spans)
   local reach, hit = 0, nil
