@@ -31,7 +31,7 @@ ns.DEFAULTS = {
   width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape", badgeScale = 100,
   font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
-  unlocked = false, nameplate = false, plateX = 0, plateY = 0,
+  unlocked = false, nameplate = false, plateX = 0, plateY = 2,
 }
 
 local db
@@ -280,6 +280,20 @@ badge:SetScript("OnDragStop", function(self)
   db.badgePos = { point, rel, x, y }
 end)
 
+-- The nameplate frame is taller than what it draws: stand on its health bar, or on the name when
+-- that sits above the bar. Nameplate addons (Plater) draw their own frame; it is used when shown.
+local function plateAnchor(p)
+  local uf = p.unitFrame and p.unitFrame:IsShown() and p.unitFrame or p.UnitFrame
+  local bar = uf and uf.healthBar
+  if not bar then return p end
+  local name = uf.name
+  if name and name:IsShown() then
+    local bottom, top = name:GetBottom(), bar:GetTop()
+    if bottom and top and not issecret(bottom) and not issecret(top) and bottom >= top - 1 then return name end
+  end
+  return bar
+end
+
 -- Over the target's nameplate when that option is on and the target has one; otherwise (nameplates
 -- off, the target too far or off screen) where it was put on the screen.
 local function place()
@@ -290,7 +304,8 @@ local function place()
   if plate then
     -- the label's badge hangs off the number's left: centre the pair, not the number
     local shift = label and (tape.badgeW + tape.badgeGap) / 2 or 0
-    root:SetPoint("BOTTOM", plate, "TOP", db.plateX + shift, db.plateY)
+    local ok, anchor = pcall(plateAnchor, plate)
+    root:SetPoint("BOTTOM", ok and anchor or plate, "TOP", db.plateX + shift, db.plateY)
   elseif db.pos then
     root:SetPoint(db.pos[1], UIParent, db.pos[2], db.pos[3], db.pos[4])
   else
