@@ -51,59 +51,56 @@ the search page hide files that don't list a flavour.
 
 ### Good Range
 
-**The precise distance to your target, to the yard, coloured by what your class can do from there.**
+**The precise distance to your target, to the yard, coloured for your class.**
 
-Most range addons show a bracket like "10–15 yd", because that is all the game tells them. Good Range shows **one number**, such as **23 yd**. It follows how you and your target move between the game's range steps and works out the distance in between, accurate to about a yard. Outdoors it also uses your own position.
+For every class and role. Good Range shows exactly how far away your target is as one clear number, like **23 yd**, and colours it by what *you* can do from there: hit in melee, charge, shoot, cast or heal.
 
-The distance sits on a sliding ruler with a gold needle, like a digital compass, or as a number with a zone badge. Either way you see at a glance whether you can hit, charge, shoot or heal from where you stand.
+**Why it's more precise.** Other range addons show a bracket such as "10–15 yd", because that is all the game tells them. Good Range follows how you and your target move between the game's range steps and works out the distance in between, accurate to about a yard. Outdoors it also uses your own position.
 
-#### Colours
+#### At a glance
 
-- 🟢 **Green: your range.** Where your role works from.
-- 🔵 **Blue: another range you can use right now**, named on the badge. It only shows when the ability is really available: enough rage, the right form, off cooldown, the right weapon equipped, out of combat if it needs that.
-- 🔴 **Red: dead zone.** A gap inside your ranges, like a hunter's 5–8 yards.
+- 🟢 **Green: you're in your range.** Melee for melee classes, shots for hunters, spells for casters and healers, heals on friendly players.
+- 🔵 **Blue: another range you can use right now**, named on the badge: CHARGE, THROW, SHOOT, JUDGE, SHOCK or MELEE. Shown only when the ability is really ready: enough rage, the right form, off cooldown, the right weapon equipped, out of combat if it needs that.
+- 🔴 **Red: dead zone.** Too close for your ranged attacks, too far for melee, like a hunter's 5–8 yards.
 - ⚪ **Grey: out of range.**
 
 #### What each class sees
 
 | Class | Green | Blue |
 |---|---|---|
-| Hunter | RANGED 8–35 yd (Auto Shot, shots) | MELEE 0–5 yd; 5–8 yd is the red dead zone |
-| Warrior | MELEE | CHARGE 8–25 yd (Charge, Intercept) when you can use it; THROW / SHOOT with a ranged weapon |
-| Rogue | MELEE | THROW / SHOOT with a thrown weapon, bow, gun or crossbow |
-| Druid, cat form | MELEE | — |
-| Druid, bear form | MELEE | CHARGE 8–25 yd (Feral Charge) when you have the rage and it is off cooldown |
-| Druid, caster and Moonkin | RANGED (Wrath, Moonfire, Starfire…) | MELEE |
-| Mage, Warlock, Priest | RANGED (spells and wand) | MELEE |
-| Shaman, Enhancement | MELEE | RANGED (Lightning Bolt), SHOCK |
-| Shaman, Elemental and Restoration | RANGED | MELEE |
-| Paladin, Retribution and Protection | MELEE | JUDGE (Judgement), RANGED (Exorcism, Hammer of Wrath) |
-| Paladin, Holy | RANGED | MELEE |
-| On a friendly player | HEAL (or BUFF if you have no heals) | — |
+| **Hunter** | RANGED 8–35 yd | MELEE 0–5 yd · red DEAD ZONE 5–8 yd |
+| **Warrior** | MELEE | CHARGE 8–25 yd (Charge, Intercept) · THROW / SHOOT |
+| **Rogue** | MELEE | THROW / SHOOT with a thrown weapon, bow, gun or crossbow |
+| **Druid**, cat | MELEE | — |
+| **Druid**, bear | MELEE | CHARGE 8–25 yd (Feral Charge) when you have the rage |
+| **Druid**, caster / Moonkin | RANGED | MELEE |
+| **Mage, Warlock, Priest** | RANGED (spells and wand) | MELEE |
+| **Shaman**, Enhancement | MELEE | RANGED, SHOCK |
+| **Shaman**, Elemental / Restoration | RANGED | MELEE |
+| **Paladin**, Retribution / Protection | MELEE | JUDGE, RANGED (Exorcism, Hammer of Wrath) |
+| **Paladin**, Holy | RANGED | MELEE |
+| **Any class**, friendly player | HEAL, or BUFF if you have no heals | — |
 
-Ranges come from the game for the rank you know, so range talents count. Friendly NPCs never show a range; friendly players only when one of your heals or buffs can reach them.
+The ranges come from the game for the spell ranks you know, so range talents count. Druid forms, shaman and paladin talent trees and Retail specializations are picked up on their own. Friendly NPCs never show a range.
 
 #### Two looks
 
-- **Tape:** the sliding ruler under a gold needle.
+- **Tape:** a sliding ruler under a gold needle, like a digital compass.
 - **Label:** the number with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge, fixed in place so nothing jumps.
 
 #### Settings
 
-Click the minimap button, or type `/goodrange` (`/gr`). The settings window is small and movable, so the tape stays in sight while you tune it.
+Click the minimap button or type `/goodrange` (`/gr`). The settings window is small and movable, so you see the result while you tune it.
 
 - Tape or label, with live previews
 - Width, height, font size and scale
 - Font: Changa Bold (included) or one of the game's fonts
 - Show in combat, out of combat, on enemies, on friendly players
 - Unlock to drag it anywhere; closing the window locks it again
-- Minimap button on or off
 
 #### Works on
 
-Retail, WoW: Forever and Anniversary (TBC Classic). On Retail your role comes from your specialization.
-
-Light on the CPU: it does nothing without a target and only checks the range steps around the current distance.
+Retail, WoW: Forever and Anniversary (TBC Classic). Light on the CPU: it does nothing without a target and only checks the range steps around the current distance.
 
 Free, no ads, no tracking.
 
