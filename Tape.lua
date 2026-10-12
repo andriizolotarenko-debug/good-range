@@ -1,9 +1,11 @@
--- The range display, in one of two looks:
+-- The range display, in one of three looks:
 --   tape   a digital-compass style ruler sliding under a gold needle: ticks every 0.1 yd (taller
 --          every 0.5, tallest on whole yards) coloured by zone, on a backing that is darkest at
 --          the ruler's bottom edge and fades out upwards and to the sides
 --   label  the distance with a rounded MELEE / RANGED / DEAD ZONE / OUT OF RANGE badge on its left
--- The tape centres the whole-yard value on its digits; the label starts it right after the badge.
+--   number the coloured distance alone
+-- The tape and the number centre the whole-yard value on its digits; the label starts it right
+-- after the badge.
 -- Either way "yd" hangs off its right.
 --
 -- Cheap to run: the ticks sit on one ruler frame that is moved as a whole each frame; they are
@@ -133,16 +135,17 @@ function Tape:SetZones(zoneAt)
   if self.value then self:Draw(self.value, self.label) end
 end
 
--- style: "tape" or "label"
+-- style: "tape", "label" or "number"
 function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   self.width, self.height, self.fontSize, self.ppy = width, height, fontSize, ppy
-  self.showTape = style ~= "label"
+  self.showTape = style ~= "label" and style ~= "number"
+  self.showBadge = style == "label"
   local k = height / BASE_H
   self.k = k
   self.base = math.floor(height - 12 * k + 0.5)   -- tick baseline, from the top of the tape area
   self.area:SetHeight(height)
   self.area:SetShown(self.showTape)
-  self.badge:SetShown(not self.showTape)
+  self.badge:SetShown(self.showBadge)
 
   font = font or FALLBACK_FONT
   setFont(self.number, font, fontSize, "OUTLINE")
@@ -184,6 +187,14 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     self.number:SetJustifyH("CENTER")
     self.root:SetSize(width, height + digitH + 4)
     self.number:SetPoint("CENTER", self.area, "TOP", 0, 3 + digitH / 2 - m.R * fontSize)
+  elseif not self.showBadge then
+    -- number: centred on its digits in a two-digit row, "yd" hanging off its right
+    self.number:SetText("88")
+    local slot = self.number:GetStringWidth() or fontSize
+    local unitW = self.unit:GetStringWidth() or fontSize * 0.6
+    self.number:SetJustifyH("CENTER")
+    self.root:SetSize(slot + 2 * (2 + unitW), digitH + 4)
+    self.number:SetPoint("CENTER", self.root, "CENTER", 0, -m.R * fontSize)
   else
     -- label: [ badge ] [ number ] yd -- the number starts right after the badge, only "yd" moves
     local gap = math.floor(fontSize * 0.25 + 0.5)
@@ -297,7 +308,7 @@ function Tape:Draw(v, label)
     self.number:SetText(label)
     self.number:SetTextColor(c[1], c[2], c[3])
     self.unit:SetTextColor(c[1], c[2], c[3])
-    if not self.showTape then
+    if self.showBadge then
       self.badgeText:SetText(badge)
       for _, t in ipairs({ self.capL, self.mid, self.capR }) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
     end

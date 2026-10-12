@@ -149,7 +149,8 @@ local function build()
   reset:SetText("Reset position")
   reset:SetScript("OnClick", function() ns.ResetPosition() end)
 
-  -- display: two clickable previews, the sliding tape and the number with a zone badge
+  -- display: clickable previews, two to a row: the sliding tape, the number with a zone badge and
+  -- the number alone
   y = y - 36
   label(win, "Display", 16, y)
   y = y - 18
@@ -163,14 +164,15 @@ local function build()
         if on then edge:SetColorTexture(1, 0.82, 0, 1) else edge:SetColorTexture(0.4, 0.4, 0.4, 0.8) end
       end
       tile.caption:SetTextColor(on and 1 or 0.7, on and 0.82 or 0.7, on and 0 or 0.7)
-      tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, mode == "tape" and 22 or 18, 20, db.font, mode)
+      tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, mode == "label" and 18 or 22, 20, db.font, mode)
       tile.preview:Draw(21.4, "21")
     end
   end
-  for i, m in ipairs({ { "tape", "Tape" }, { "label", "Label" } }) do
+  local modes = { { "tape", "Tape" }, { "label", "Label" }, { "number", "Number" } }
+  for i, m in ipairs(modes) do
     local tile = CreateFrame("Button", nil, win)
     tile:SetSize((W - 40) / 2, 78)
-    tile:SetPoint("TOPLEFT", 14 + (i - 1) * ((W - 40) / 2 + 12), y)
+    tile:SetPoint("TOPLEFT", 14 + (i - 1) % 2 * ((W - 40) / 2 + 12), y - math.floor((i - 1) / 2) * 90)
     local bg = tile:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.02, 0.02, 0.03, 0.6)
@@ -199,7 +201,7 @@ local function build()
   end
   controls[#controls + 1] = { Refresh = showMode }
 
-  y = y - 92
+  y = y - 2 - 90 * math.ceil(#modes / 2)
   controls[#controls + 1] = slider(win, "Width", y, "width", 100, 1000, 10)
   y = y - 44
   controls[#controls + 1] = slider(win, "Height", y, "height", 20, 160, 1)
