@@ -1,5 +1,5 @@
--- Settings: a small window you can drag around (/rp), so the tape stays visible while you tune it.
--- Closing the window locks the tape again. Options > AddOns > Range Probe only opens this window.
+-- Settings: a small window you can drag around (/goodrange, /gr), so the tape stays visible while you tune it.
+-- Closing the window locks the tape again. Options > AddOns > Good Range only opens this window.
 local _, ns = ...
 
 local W = 300
@@ -90,7 +90,7 @@ end
 local function build()
   local db = ns.db
   local template
-  win, template = ns.API.CreateFrameFrom("Frame", "RangeProbeOptions", UIParent,
+  win, template = ns.API.CreateFrameFrom("Frame", "GoodRangeOptions", UIParent,
     { "DefaultPanelFlatTemplate", "BasicFrameTemplateWithInset" })
   win:SetWidth(W)
   win:SetFrameStrata("DIALOG")
@@ -111,14 +111,14 @@ local function build()
     win:SetPoint("RIGHT", UIParent, "RIGHT", -60, 0)
   end
   if win.SetTitle then
-    win:SetTitle("Range Probe")
+    win:SetTitle("Good Range")
   elseif win.TitleContainer then
-    win.TitleContainer.TitleText:SetText("Range Probe")
+    win.TitleContainer.TitleText:SetText("Good Range")
   else
     local title = win.TitleText or win:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:ClearAllPoints()
     title:SetPoint("TOP", 0, -5)
-    title:SetText("Range Probe")
+    title:SetText("Good Range")
   end
   if not template or not (win.NineSlice or win.Bg or win.Inset) then
     -- no panel art from a template: a plain dark backing
@@ -130,11 +130,15 @@ local function build()
     local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0)
   end
-  table.insert(UISpecialFrames, "RangeProbeOptions")   -- Esc closes it
+  table.insert(UISpecialFrames, "GoodRangeOptions")   -- Esc closes it
 
   local controls = {}
   local y = -34
 
+  controls[#controls + 1] = checkbox(win, "Minimap button", 12, y,
+    function() return not (db.minimap and db.minimap.hide) end,
+    function(v) ns.ShowMinimapButton(v) end)
+  y = y - 30
   controls[#controls + 1] = checkbox(win, "Unlock to move", 12, y,
     function() return db.unlocked end,
     function(v) db.unlocked = v; ns.ApplyLayout() end,
@@ -256,12 +260,12 @@ local function build()
 end
 
 function ns.CreateOptions()
-  -- Options > AddOns > Range Probe: a pointer to the window (clients with the new Settings UI)
+  -- Options > AddOns > Good Range: a pointer to the window (clients with the new Settings UI)
   if not (Settings and Settings.RegisterVerticalLayoutCategory and CreateSettingsButtonInitializer) then
     return
   end
-  local cat, layout = Settings.RegisterVerticalLayoutCategory("Range Probe")
-  layout:AddInitializer(CreateSettingsButtonInitializer("Range Probe", "Open settings window", function()
+  local cat, layout = Settings.RegisterVerticalLayoutCategory("Good Range")
+  layout:AddInitializer(CreateSettingsButtonInitializer("Good Range", "Open settings window", function()
     if SettingsPanel then HideUIPanel(SettingsPanel) end
     ns.OpenOptions()
   end, "A small window you can move, so the tape stays in view while you tune it.", true))
@@ -272,4 +276,8 @@ function ns.OpenOptions()
   if not win then build() end
   win:Show()
   win:Raise()
+end
+
+function ns.ToggleOptions()
+  if win and win:IsShown() then win:Hide() else ns.OpenOptions() end
 end

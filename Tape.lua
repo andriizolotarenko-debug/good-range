@@ -15,7 +15,7 @@ local Tape = {}
 Tape.__index = Tape
 ns.Tape = Tape
 
-local MEDIA = "Interface\\AddOns\\RangeProbe\\media\\"
+local MEDIA = "Interface\\AddOns\\GoodRange\\media\\"
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 local SLICES = 28          -- backing plate columns (each a vertical gradient)
 local BASE_H = 40          -- design height; tick sizes scale with height / BASE_H
@@ -119,7 +119,7 @@ function Tape.New(parent, name)
   self.box:SetColorTexture(1, 0.82, 0, 0.12)
   self.hint = root:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   self.hint:SetPoint("TOP", root, "BOTTOM", 0, -2)
-  self.hint:SetText("Drag to move. Closing the Range Probe window locks it.")
+  self.hint:SetText("Drag to move. Closing the Good Range window locks it.")
 
   self:SetUnlocked(false)
   return self

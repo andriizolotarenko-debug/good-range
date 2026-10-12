@@ -1,4 +1,4 @@
--- Range Probe: distance to the target from range checks, shown on a sliding range tape or as a
+-- Good Range: distance to the target from range checks, shown on a sliding range tape or as a
 -- number with a zone badge. Colours come from your class zones: blue melee, green shoot / cast /
 -- heal, red dead zone, grey out of range.
 local _, ns = ...
@@ -26,7 +26,7 @@ end
 
 ns.DEFAULTS = {
   width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape",
-  font = "Interface\\AddOns\\RangeProbe\\media\\Changa-Bold.ttf",
+  font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
   unlocked = false,
 }
@@ -38,7 +38,7 @@ local spellbook = { known = {}, generic = { harm = {}, help = {} } }   -- filled
 local spans, spanKey = {}, ""   -- the zones for the current target (see Zones.build)
 local secrets = { spell = 0, item = 0, speed = 0 }
 
-local function say(msg) print("|cff66ccffRange Probe|r " .. msg) end
+local function say(msg) print("|cff66ccffGood Range|r " .. msg) end
 
 -- Checkers --------------------------------------------------------------------------------
 
@@ -248,7 +248,7 @@ end
 
 -- UI ----------------------------------------------------------------------------------------
 
-local tape = ns.Tape.New(UIParent, "RangeProbeTape")
+local tape = ns.Tape.New(UIParent, "GoodRangeTape")
 local root = tape.root
 root:SetMovable(true)
 root:SetClampedToScreen(true)
@@ -419,8 +419,9 @@ local function printList()
   end
 end
 
-SLASH_RANGEPROBE1 = "/rp"
-SlashCmdList.RANGEPROBE = function(msg)
+SLASH_GOODRANGE1 = "/goodrange"
+SLASH_GOODRANGE2 = "/gr"
+SlashCmdList.GOODRANGE = function(msg)
   msg = strtrim(msg or ""):lower()
   if msg == "stats" then
     printStats()
@@ -432,7 +433,7 @@ SlashCmdList.RANGEPROBE = function(msg)
   elseif msg == "" or msg == "config" or msg == "options" then
     ns.OpenOptions()
   else
-    say("/rp opens the options.  /rp stats | reset | list")
+    say("/goodrange (or /gr) opens the options.  /gr stats | reset | list")
   end
 end
 
@@ -457,8 +458,8 @@ end
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
-    RangeProbeDB = RangeProbeDB or {}
-    db = RangeProbeDB
+    GoodRangeDB = GoodRangeDB or {}
+    db = GoodRangeDB
     if (db.layoutVersion or 1) < 2 then
       -- v2: 20% smaller tape, placed above the character
       db.width, db.height, db.fontSize, db.ppy, db.pos = nil, nil, nil, nil, nil
@@ -487,6 +488,7 @@ events:SetScript("OnEvent", function(_, event)
     place()
     build()
     ns.CreateOptions()
+    ns.InitMinimap(db)
     ns.ApplyLayout()
   elseif not db then
     return

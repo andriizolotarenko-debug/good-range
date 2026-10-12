@@ -67,3 +67,25 @@ badge = Image.new("RGBA", (64, 32), (255, 255, 255, 0))
 badge.putalpha(alpha)
 badge.save("media/badge.tga")
 print("media/badge.tga", badge.size)
+
+# media/icon.tga: placeholder addon / minimap icon (64x64) until the painted one arrives: a dark
+# rounded tile with zone-coloured ticks and the gold needle
+S = 8
+W = 64 * S
+tile = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+d = ImageDraw.Draw(tile)
+d.rounded_rectangle([2 * S, 2 * S, 62 * S, 62 * S], radius=10 * S, fill=(18, 22, 30, 255),
+                    outline=(150, 118, 60, 255), width=3 * S)
+zones = [(0, 14, (77, 168, 255)), (14, 22, (242, 84, 79)), (22, 46, (95, 224, 106)), (46, 64, (139, 144, 153))]
+base = 42 * S
+for i in range(9, 56, 3):
+    color = next(c for a, b, c in zones if a <= i < b)
+    h = (14 if (i - 9) % 15 == 0 else 9 if (i - 9) % 3 == 0 and (i - 9) % 6 == 0 else 6) * S
+    d.rectangle([i * S - S, base - h, i * S + S, base], fill=color + (255,))
+cx = 32 * S
+d.polygon([(cx - 7 * S, 10 * S), (cx + 7 * S, 10 * S), (cx + 1.5 * S, 19 * S), (cx + 1.5 * S, 50 * S),
+           (cx, 54 * S), (cx - 1.5 * S, 50 * S), (cx - 1.5 * S, 19 * S)],
+          fill=(255, 209, 0, 255), outline=(40, 26, 0, 255))
+icon = tile.resize((64, 64), Image.LANCZOS)
+icon.save("media/icon.tga")
+print("media/icon.tga", icon.size)

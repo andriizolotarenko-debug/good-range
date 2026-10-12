@@ -1,7 +1,44 @@
 # Good Range: store texts and icon brief
 
-Texts for the CurseForge page and the TOC, plus the brief for the icon. They assume the rename
-from Range Probe to Good Range (folder `GoodRange`, commands `/goodrange` and `/gr`).
+## How CurseForge search works (checked 2026-10-12 on the live site)
+
+- Only the **project name** and the **summary** are searched. A phrase from Forever Deadzone's
+  summary finds it; a phrase from its description finds nothing. The description sells the
+  addon but is invisible to search.
+- Every word of the query has to match, and partial matches count: "rangefinder" finds
+  "SimpleRangeFinder" and "Range Finder 3000"; "range check" finds "checker".
+- Ranking is by text match, not downloads: for "range", Range Lens (1.5K downloads; "Range" twice
+  in its name, again in its summary) is first and RangeDisplay (4M) fifth. A word in the name
+  weighs most: "Range Check" (242 downloads) beats LibRangeCheck (271K) for "range check".
+- So the name carries the top searches (range, target distance, range finder), and the summary
+  carries the rest (yards, range check, range display, melee, charge, hunter deadzone, flavours).
+
+Searches covered: range, distance, target distance, range finder, rangefinder, range check,
+range display, yards, melee range, charge, heal range, hunter, deadzone, dead zone (via
+"deadzone" partial match), Retail, Classic TBC, Forever.
+
+## CurseForge project name
+
+```
+Good Range - Target Distance & Range Finder
+```
+
+## Summary (222 of ~250 characters)
+
+```
+Precise distance to your target in yards: one number, not a bracket. Range finder, range check and range display coloured by your class: melee, ranged, charge, throw, heal, hunter deadzone. Retail, Classic TBC and Forever.
+```
+
+## Categories
+
+Primary **Combat** (where RangeDisplay and Range Lens are), then **HUDs**, **Hunter**,
+**Warrior**, **Druid**: class players browse their class category, and hunters (dead zone),
+warriors and druids (charge) gain the most.
+
+## Flavours
+
+Upload every file for Retail, WoW: Forever and Anniversary (TBC Classic): the flavour filters on
+the search page hide files that don't list a flavour.
 
 ## TOC
 
@@ -10,51 +47,63 @@ from Range Probe to Good Range (folder `GoodRange`, commands `/goodrange` and `/
 ## Notes: Distance to your target on a sliding range tape, coloured by what your class can do from there.
 ```
 
-## CurseForge summary (one line under the name)
-
-Know your range at a glance: distance to your target on a sliding yard tape, coloured by your class, form and what you can use right now.
-
-## CurseForge description
+## Description
 
 ### Good Range
 
-**Know you're in range before you press the button.**
+**The precise distance to your target, to the yard, coloured by what your class can do from there.**
 
-Good Range shows the distance to your target as a sliding ruler, like a digital compass, with a gold needle and the distance in whole yards on top. The colours come from your class, your form and what you can actually use right now.
+Most range addons show a bracket like "10–15 yd", because that is all the game tells them. Good Range shows **one number**, such as **23 yd**. It follows how you and your target move between the game's range steps and works out the distance in between, accurate to about a yard. Outdoors it also uses your own position.
+
+The distance sits on a sliding ruler with a gold needle, like a digital compass, or as a number with a zone badge. Either way you see at a glance whether you can hit, charge, shoot or heal from where you stand.
 
 #### Colours
 
-- **Green: your range.** Melee for warriors, rogues, druids in cat or bear form, Enhancement shamans and Ret / Prot paladins. Shots for hunters. Spells and wands for casters and healers. Heals or buffs on friendly players.
-- **Blue: another range you can use right now**, named on the badge: CHARGE, THROW, SHOOT, JUDGE, SHOCK, or a hunter's MELEE. It appears only when the ability is really available: enough rage, the right form, off cooldown, the right weapon equipped, out of combat if it needs that.
-- **Red: dead zone.** The gap inside your ranges, such as a hunter's 5–8 yards before Auto Shot.
-- **Grey: out of range.**
+- 🟢 **Green: your range.** Where your role works from.
+- 🔵 **Blue: another range you can use right now**, named on the badge. It only shows when the ability is really available: enough rage, the right form, off cooldown, the right weapon equipped, out of combat if it needs that.
+- 🔴 **Red: dead zone.** A gap inside your ranges, like a hunter's 5–8 yards.
+- ⚪ **Grey: out of range.**
 
-#### Finer than the game's steps
+#### What each class sees
 
-The game only tells addons whether something is within a fixed distance, so most range addons show brackets like "10–15". Good Range follows how you and your target move between those steps and estimates the distance to about a yard. Outdoors it also uses your own position.
+| Class | Green | Blue |
+|---|---|---|
+| Hunter | RANGED 8–35 yd (Auto Shot, shots) | MELEE 0–5 yd; 5–8 yd is the red dead zone |
+| Warrior | MELEE | CHARGE 8–25 yd (Charge, Intercept) when you can use it; THROW / SHOOT with a ranged weapon |
+| Rogue | MELEE | THROW / SHOOT with a thrown weapon, bow, gun or crossbow |
+| Druid, cat form | MELEE | — |
+| Druid, bear form | MELEE | CHARGE 8–25 yd (Feral Charge) when you have the rage and it is off cooldown |
+| Druid, caster and Moonkin | RANGED (Wrath, Moonfire, Starfire…) | MELEE |
+| Mage, Warlock, Priest | RANGED (spells and wand) | MELEE |
+| Shaman, Enhancement | MELEE | RANGED (Lightning Bolt), SHOCK |
+| Shaman, Elemental and Restoration | RANGED | MELEE |
+| Paladin, Retribution and Protection | MELEE | JUDGE (Judgement), RANGED (Exorcism, Hammer of Wrath) |
+| Paladin, Holy | RANGED | MELEE |
+| On a friendly player | HEAL (or BUFF if you have no heals) | — |
+
+Ranges come from the game for the rank you know, so range talents count. Friendly NPCs never show a range; friendly players only when one of your heals or buffs can reach them.
 
 #### Two looks
 
-- **Tape:** the sliding ruler with the needle.
-- **Label:** the distance with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge, fixed in place so nothing jumps.
+- **Tape:** the sliding ruler under a gold needle.
+- **Label:** the number with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge, fixed in place so nothing jumps.
 
 #### Settings
 
-Type `/goodrange` (or `/gr`). The window is small and movable, so the tape stays in sight while you tune it.
+Click the minimap button, or type `/goodrange` (`/gr`). The settings window is small and movable, so the tape stays in sight while you tune it.
 
 - Tape or label, with live previews
 - Width, height, font size and scale
 - Font: Changa Bold (included) or one of the game's fonts
 - Show in combat, out of combat, on enemies, on friendly players
 - Unlock to drag it anywhere; closing the window locks it again
-
-Friendly NPCs never show a range. Friendly players show one only if one of your heals or buffs can target them.
+- Minimap button on or off
 
 #### Works on
 
-Retail, WoW: Forever and Anniversary (TBC Classic). On Forever and Anniversary the class zones use Classic abilities and read their ranges from the game, so range talents count. On Retail the role comes from your specialization.
+Retail, WoW: Forever and Anniversary (TBC Classic). On Retail your role comes from your specialization.
 
-Light on the CPU: it does nothing without a target and checks only the range steps around the current distance.
+Light on the CPU: it does nothing without a target and only checks the range steps around the current distance.
 
 Free, no ads, no tracking.
 
@@ -83,5 +132,5 @@ Follow-up prompts if needed:
 - "Same icon, simpler: fewer ticks, thicker needle, so it reads at 32x32."
 - "Same icon without the frame, on a transparent background, for the minimap and the addon list."
 
-Sizes to export: 400x400 PNG for CurseForge, 64x64 TGA (`media/icon.tga`) for the TOC
-(`## IconTexture: Interface\AddOns\GoodRange\media\icon`).
+Sizes to export: 400x400 PNG for CurseForge, 64x64 TGA `media/icon.tga` (replaces the
+placeholder; the TOC's `IconTexture` and the minimap button already point at it).
