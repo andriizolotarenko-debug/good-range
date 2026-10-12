@@ -1,6 +1,7 @@
 -- Settings: a small window you can drag around (/goodrange, /gr), so the tape stays visible while you tune it.
--- While the window is open the display is unlocked (shown with a sample value without a target, and
--- draggable); closing it locks the display again. Options > AddOns > Good Range only opens this window.
+-- While the window is open the display is unlocked (shown with a sample value without a target,
+-- and draggable, or nudged by the offset sliders over a nameplate); closing it locks it again.
+-- Options > AddOns > Good Range only opens this window.
 local _, ns = ...
 
 local W = 340
@@ -36,8 +37,10 @@ local function checkbox(parent, text, x, y, get, set, tooltip)
   return cb
 end
 
-local function slider(parent, text, y, key, min, max, step)
-  label(parent, text, 16, y)
+-- x, w: left edge and slider width (default: the full window width)
+local function slider(parent, text, y, key, min, max, step, x, w)
+  x, w = x or 12, w or W - 80
+  label(parent, text, x + 4, y)
   local function changed(v)
     v = math.floor(v / step + 0.5) * step
     if ns.db[key] ~= v then
@@ -48,8 +51,8 @@ local function slider(parent, text, y, key, min, max, step)
   local s, template = ns.API.CreateFrameFrom("Frame", nil, parent, { "MinimalSliderWithSteppersTemplate" })
   if template and s.Init then
     -- Retail / Forever: the slider with arrows used by the game's own settings
-    s:SetPoint("TOPLEFT", 12, y - 16)
-    s:SetSize(W - 80, 20)   -- room on the right for the value
+    s:SetPoint("TOPLEFT", x, y - 16)
+    s:SetSize(w, 20)   -- room on the right for the value
     local formatters = {
       [MinimalSliderWithSteppersMixin.Label.Right] = function(v) return tostring(math.floor(v + 0.5)) end,
     }
@@ -61,8 +64,8 @@ local function slider(parent, text, y, key, min, max, step)
   -- older clients: the classic options slider and a value label
   s:Hide()
   local bar = ns.API.CreateFrameFrom("Slider", nil, parent, { "OptionsSliderTemplate", "UISliderTemplate" })
-  bar:SetPoint("TOPLEFT", 18, y - 20)
-  bar:SetSize(W - 90, 16)
+  bar:SetPoint("TOPLEFT", x + 6, y - 20)
+  bar:SetSize(w - 10, 16)
   bar:SetOrientation("HORIZONTAL")
   bar:SetMinMaxValues(min, max)
   bar:SetValueStep(step)
@@ -247,7 +250,18 @@ local function build()
   y = y - 26
   shownWhen("Enemy target", "enemy", 12, y)
   shownWhen("Friendly target", "friendly", W / 2, y)
-  win:SetHeight(-y + 40)
+
+  -- over the target's nameplate, nudged by two offsets side by side
+  y = y - 30
+  controls[#controls + 1] = checkbox(win, "Above the target's nameplate", 12, y,
+    function() return db.nameplate end, function(v) db.nameplate = v; ns.ApplyLayout() end,
+    "The display hangs over your target's nameplate and moves with it. When the target has no "
+      .. "nameplate (nameplates off, or the target too far or off screen) it stays where you put it.")
+  y = y - 30
+  local half = (W - 24) / 2
+  controls[#controls + 1] = slider(win, "Nameplate offset X", y, "plateX", -150, 150, 1, 12, half - 46)
+  controls[#controls + 1] = slider(win, "Nameplate offset Y", y, "plateY", -50, 150, 1, 12 + half, half - 46)
+  win:SetHeight(-y + 52)
 
   -- the display is unlocked exactly while this window is open
   win:SetScript("OnShow", function()

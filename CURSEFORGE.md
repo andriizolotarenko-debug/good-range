@@ -97,6 +97,7 @@ Click the minimap button or type `/goodrange` (`/gr`). The settings window is sm
 - Width, height, font size, scale and badge size
 - Font: Changa Bold (included) or one of the game's fonts
 - Show in combat, out of combat, on enemies, on friendly players
+- Above the target's nameplate: the display moves with your target, in any of the three looks, with its own offset; without a nameplate it stays where you put it
 - While the window is open the display shows a sample distance and can be dragged anywhere; closing the window locks it again
 
 #### Works on

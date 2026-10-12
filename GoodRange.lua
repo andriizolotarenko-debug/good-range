@@ -31,7 +31,7 @@ ns.DEFAULTS = {
   width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape", badgeScale = 100,
   font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
-  unlocked = false,
+  unlocked = false, nameplate = false, plateX = 0, plateY = 0,
 }
 
 local db
@@ -257,8 +257,10 @@ local root = tape.root
 root:SetMovable(true)
 root:SetClampedToScreen(true)
 root:RegisterForDrag("LeftButton")
-root:SetScript("OnDragStart", function(self) self:StartMoving() end)
+local plate   -- the target's nameplate the display hangs over, if any (see place)
+root:SetScript("OnDragStart", function(self) if not plate then self:StartMoving() end end)
 root:SetScript("OnDragStop", function(self)
+  if plate then return end
   self:StopMovingOrSizing()
   local point, _, rel, x, y = self:GetPoint()
   db.pos = { point, rel, x, y }
@@ -270,20 +272,49 @@ local badge = tape.badge
 badge:SetMovable(true)
 badge:SetClampedToScreen(true)
 badge:RegisterForDrag("LeftButton")
-badge:SetScript("OnDragStart", function(self) self:StartMoving() end)
+badge:SetScript("OnDragStart", function(self) if not plate then self:StartMoving() end end)
 badge:SetScript("OnDragStop", function(self)
+  if plate then return end
   self:StopMovingOrSizing()
   local point, _, rel, x, y = self:GetPoint()
   db.badgePos = { point, rel, x, y }
 end)
 
+-- Over the target's nameplate when that option is on and the target has one; otherwise (nameplates
+-- off, the target too far or off screen) where it was put on the screen.
 local function place()
+  plate = db.nameplate and C_NamePlate and C_NamePlate.GetNamePlateForUnit
+    and C_NamePlate.GetNamePlateForUnit("target") or nil
+  local label = db.display == "label" and tape.badgeGap
   root:ClearAllPoints()
-  if db.pos then
+  if plate then
+    -- the label's badge hangs off the number's left: centre the pair, not the number
+    local shift = label and (tape.badgeW + tape.badgeGap) / 2 or 0
+    root:SetPoint("BOTTOM", plate, "TOP", db.plateX + shift, db.plateY)
+  elseif db.pos then
     root:SetPoint(db.pos[1], UIParent, db.pos[2], db.pos[3], db.pos[4])
   else
     root:SetPoint("CENTER", UIParent, "CENTER", 0, 110)   -- roughly above the character
   end
+  -- a dragged badge stays where it was put, except over a nameplate: there it goes with the number
+  if label then
+    badge:ClearAllPoints()
+    if db.badgePos and not plate then
+      badge:SetPoint(db.badgePos[1], UIParent, db.badgePos[2], db.badgePos[3], db.badgePos[4])
+    else
+      badge:SetPoint("RIGHT", root, "LEFT", -tape.badgeGap, 0)
+    end
+  end
+  tape:SetUnlocked(db.unlocked)
+  if plate then tape.hint:SetText("Over the target's nameplate: move it with the nameplate offset sliders.") end
+end
+
+-- nameplates come and go as the target walks in and out of view: place again once they settle
+local placePending
+local function placeSoon()
+  if placePending then return end
+  placePending = true
+  C_Timer.After(0, function() placePending = false; place() end)
 end
 
 tape:SetZones(zoneAt)
@@ -295,11 +326,7 @@ end
 function ns.ApplyLayout()
   if not db then return end
   tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100)
-  if db.display == "label" and db.badgePos then
-    badge:ClearAllPoints()
-    badge:SetPoint(db.badgePos[1], UIParent, db.badgePos[2], db.badgePos[3], db.badgePos[4])
-  end
-  tape:SetUnlocked(db.unlocked)
+  place()
   ns.RefreshShown()
 end
 
@@ -467,7 +494,7 @@ end
 
 function ns.ResetPosition()
   db.pos, db.badgePos = nil, nil
-  place()
+  db.plateX, db.plateY = ns.DEFAULTS.plateX, ns.DEFAULTS.plateY
   ns.ApplyLayout()
 end
 
@@ -481,7 +508,8 @@ events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 -- talents and gear can change spell ranges: rebuild the zones then
-for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
+for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
+                    "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
   pcall(events.RegisterEvent, events, e)   -- not every client has every event
 end
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
@@ -514,7 +542,6 @@ events:SetScript("OnEvent", function(_, event)
     end
     ns.db = db
     db.unlocked = false   -- the tape is only unlocked while the settings window is open
-    place()
     build()
     ns.CreateOptions()
     ns.InitMinimap(db)
@@ -532,9 +559,12 @@ events:SetScript("OnEvent", function(_, event)
       refreshZones()
       tape:SetZones(zoneAt)
     end
+    if db.nameplate then place() end
     ns.RefreshShown()
   elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
     ns.RefreshShown()
+  elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
+    if db.nameplate then placeSoon() end
   else
     rebuildSoon()
   end
