@@ -3,7 +3,8 @@
 --          every 0.5, tallest on whole yards) coloured by zone, on a backing that is darkest at
 --          the ruler's bottom edge and fades out upwards and to the sides
 --   label  the distance with a rounded MELEE / RANGED / DEAD ZONE / OUT OF RANGE badge on its left
--- Either way the whole-yard value is centred on its digits, with "yd" hanging off its right.
+-- The tape centres the whole-yard value on its digits; the label starts it right after the badge.
+-- Either way "yd" hangs off its right.
 --
 -- Cheap to run: the ticks sit on one ruler frame that is moved as a whole each frame; they are
 -- only restyled (colour, size, side fade) when the tape passes a 0.1 yd step, and between two
@@ -184,16 +185,16 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     self.root:SetSize(width, height + digitH + 4)
     self.number:SetPoint("CENTER", self.area, "TOP", 0, 3 + digitH / 2 - m.R * fontSize)
   else
-    -- label: [ badge ] [ number, right-aligned in a two-digit slot ] yd -- all fixed in place
+    -- label: [ badge ] [ number ] yd -- the number starts right after the badge, only "yd" moves
     local gap = math.floor(fontSize * 0.25 + 0.5)
     self.number:SetText("88")
     local slot = self.number:GetStringWidth() or fontSize
     local unitW = self.unit:GetStringWidth() or fontSize * 0.6
-    self.number:SetJustifyH("RIGHT")
+    self.number:SetJustifyH("LEFT")
     self.root:SetSize(badgeW + gap + slot + 2 + unitW, digitH + 4)
     self.badge:SetPoint("LEFT", self.root, "LEFT", 0, 0)
     -- the digits' middle on the row's middle, level with the badge
-    self.number:SetPoint("RIGHT", self.root, "LEFT", badgeW + gap + slot, -m.R * fontSize)
+    self.number:SetPoint("LEFT", self.root, "LEFT", badgeW + gap, -m.R * fontSize)
   end
   -- "yd" stands on the digits' baseline
   self.unit:SetPoint("LEFT", self.number, "RIGHT", 2, (m.R - m.D / 2) * (fontSize - unitSize))
