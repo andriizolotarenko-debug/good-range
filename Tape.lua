@@ -6,8 +6,9 @@
 -- Either way the whole-yard value is centred on its digits, with "yd" hanging off its right.
 --
 -- Cheap to run: the ticks sit on one ruler frame that is moved as a whole each frame; they are
--- only restyled when the tape passes a 0.1 yd step, and the side fade is a mask texture, so the
--- GPU does it. Nothing is redrawn while the value stands still.
+-- only restyled (colour, size, side fade) when the tape passes a 0.1 yd step, and between two
+-- restyles the ruler moves less than one tick apart. Nothing is redrawn while the value stands
+-- still.
 local _, ns = ...
 
 local Tape = {}
@@ -70,10 +71,6 @@ function Tape.New(parent, name)
 
   self.ruler = CreateFrame("Frame", nil, self.area)
   self.ruler:SetSize(1, 1)
-
-  self.mask = self.ruler:CreateMaskTexture()
-  self.mask:SetTexture(MEDIA .. "fade_mask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-  self.mask:SetAllPoints(self.area)
 
   self.number = root:CreateFontString(nil, "OVERLAY")
   self.unit = root:CreateFontString(nil, "OVERLAY")
@@ -206,8 +203,10 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   for i, t in ipairs(self.plate) do
     local a = 0.6 * fade((i - 0.5) * sw, width / 2)
     t:ClearAllPoints()
-    t:SetPoint("TOPLEFT", self.area, "TOPLEFT", (i - 1) * sw, 0)
-    t:SetSize(sw + 0.5, self.base)
+    -- whole-unit edges: neighbouring columns meet without overlapping (an overlap shows as a seam)
+    local x0, x1 = math.floor((i - 1) * sw + 0.5), math.floor(i * sw + 0.5)
+    t:SetPoint("TOPLEFT", self.area, "TOPLEFT", x0, 0)
+    t:SetSize(x1 - x0, self.base)
     ns.API.VerticalAlpha(t, a, 0)
   end
 
@@ -233,7 +232,6 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     if not t then
       t = self.ruler:CreateTexture(nil, "ARTWORK")
       t:SetColorTexture(1, 1, 1, 1)
-      t:AddMaskTexture(self.mask)
       self.ticks[i] = t
     end
     t:ClearAllPoints()
@@ -253,20 +251,22 @@ function Tape:SetUnlocked(on)
   self.root:EnableMouse(on)
 end
 
--- Colours and sizes for the ticks from 0.1-yd index `first` on.
-function Tape:Restyle(first)
+-- Colour, size and side fade for the ticks from 0.1-yd index `first` on, with the tape at v.
+function Tape:Restyle(first, v)
   self.first = first
   local colors, zoneAt, k = Tape.COLORS, self.zoneAt, self.k
+  local cx, ppy = self.width / 2, self.ppy
   for n = 1, self.count do
     local i = first + n - 1
     local tick = self.ticks[n]
-    if i < 0 then
+    local f = fade(cx + (i / 10 - v) * ppy, cx)
+    if i < 0 or f <= 0.01 then
       tick:Hide()
     else
       local major, halfTick = i % 10 == 0, i % 5 == 0
       local c = colors[zoneAt(i / 10)]
       tick:SetSize(major and 3 or 2, (major and 20 or halfTick and 12 or 6) * k)
-      tick:SetVertexColor(c[1], c[2], c[3], major and 1 or halfTick and 0.9 or 0.75)
+      tick:SetVertexColor(c[1], c[2], c[3], f * (major and 1 or halfTick and 0.9 or 0.75))
       tick:Show()
     end
   end
@@ -282,7 +282,7 @@ function Tape:Draw(v, label)
   if self.showTape then
     local cx, ppy = self.width / 2, self.ppy
     local first = math.floor((v - cx / ppy) * 10) - 1
-    if first ~= self.first then self:Restyle(first) end
+    if first ~= self.first then self:Restyle(first, v) end
     -- tick n sits at ruler x (n-1) * step and stands for (first + n - 1) / 10
     self.ruler:ClearAllPoints()
     self.ruler:SetPoint("TOPLEFT", self.area, "TOPLEFT", cx + (first / 10 - v) * ppy, 0)

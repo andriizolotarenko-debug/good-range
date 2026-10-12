@@ -57,16 +57,6 @@ img = img.resize((64, 64), Image.LANCZOS)
 img.save("media/needle.tga")
 print("media/needle.tga", img.size)
 
-# media/fade_mask.tga: side fade for the tape ticks (grey = alpha, so either mask channel works)
-mask = Image.new("RGBA", (256, 16))
-for x in range(256):
-    t = abs((x + 0.5) / 256 * 2 - 1)
-    v = round(255 * max(0.0, 1 - t ** 2.2))
-    for y in range(16):
-        mask.putpixel((x, y), (v, v, v, v))
-mask.save("media/fade_mask.tga")
-print("media/fade_mask.tga", mask.size)
-
 # media/badge.tga: white rounded rectangle for the zone badge, sliced into left cap / middle /
 # right cap in Lua (texcoords 0-0.25, 0.25-0.75, 0.75-1; caps are half the height wide)
 S = 8
