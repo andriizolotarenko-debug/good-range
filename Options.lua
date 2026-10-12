@@ -1,8 +1,9 @@
 -- Settings: a small window you can drag around (/goodrange, /gr), so the tape stays visible while you tune it.
--- Closing the window locks the tape again. Options > AddOns > Good Range only opens this window.
+-- While the window is open the display is unlocked (shown with a sample value without a target, and
+-- draggable); closing it locks the display again. Options > AddOns > Good Range only opens this window.
 local _, ns = ...
 
-local W = 300
+local W = 340
 local win
 
 local function label(parent, text, x, y, font)
@@ -48,7 +49,7 @@ local function slider(parent, text, y, key, min, max, step)
   if template and s.Init then
     -- Retail / Forever: the slider with arrows used by the game's own settings
     s:SetPoint("TOPLEFT", 12, y - 16)
-    s:SetSize(W - 40, 20)
+    s:SetSize(W - 80, 20)   -- room on the right for the value
     local formatters = {
       [MinimalSliderWithSteppersMixin.Label.Right] = function(v) return tostring(math.floor(v + 0.5)) end,
     }
@@ -138,11 +139,6 @@ local function build()
   controls[#controls + 1] = checkbox(win, "Minimap button", 12, y,
     function() return not (db.minimap and db.minimap.hide) end,
     function(v) ns.ShowMinimapButton(v) end)
-  y = y - 30
-  controls[#controls + 1] = checkbox(win, "Unlock to move", 12, y,
-    function() return db.unlocked end,
-    function(v) db.unlocked = v; ns.ApplyLayout() end,
-    "Shows the tape without a target so you can drag it. Locks again when this window closes.")
   local reset = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
   reset:SetSize(110, 22)
   reset:SetPoint("TOPRIGHT", -14, y - 1)
@@ -166,6 +162,10 @@ local function build()
       tile.caption:SetTextColor(on and 1 or 0.7, on and 0.82 or 0.7, on and 0 or 0.7)
       tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, mode == "label" and 18 or 22, 20, db.font, mode)
       tile.preview:Draw(21.4, "21")
+      -- the label's badge hangs off the number's left: centre the pair, not the number
+      local shift = mode == "label" and (tile.preview.badgeW + tile.preview.badgeGap) / 2 or 0
+      tile.preview.root:ClearAllPoints()
+      tile.preview.root:SetPoint("CENTER", tile, "CENTER", shift, 7)
     end
   end
   local modes = { { "tape", "Tape" }, { "label", "Label" }, { "number", "Number" } }
@@ -189,7 +189,6 @@ local function build()
     tile.caption:SetPoint("BOTTOM", 0, 5)
     tile.caption:SetText(m[2])
     tile.preview = ns.Tape.New(tile)
-    tile.preview.root:SetPoint("CENTER", tile, "CENTER", 0, 7)
     tile.preview:SetZones(sampleZone)
     tile.preview.root:Show()
     tile:SetScript("OnClick", function()
@@ -209,6 +208,8 @@ local function build()
   controls[#controls + 1] = slider(win, "Font size", y, "fontSize", 20, 96, 1)
   y = y - 44
   controls[#controls + 1] = slider(win, "Scale (pixels per yard)", y, "ppy", 15, 100, 1)
+  y = y - 44
+  controls[#controls + 1] = slider(win, "Badge size (label look, %)", y, "badgeScale", 50, 200, 5)
 
   -- font: step through the list with arrows
   y = y - 48
@@ -242,21 +243,21 @@ local function build()
       function() return db[key] end, function(v) db[key] = v; ns.RefreshShown() end)
   end
   shownWhen("In combat", "inCombat", 12, y)
-  shownWhen("Out of combat", "outOfCombat", 150, y)
+  shownWhen("Out of combat", "outOfCombat", W / 2, y)
   y = y - 26
   shownWhen("Enemy target", "enemy", 12, y)
-  shownWhen("Friendly target", "friendly", 150, y)
+  shownWhen("Friendly target", "friendly", W / 2, y)
   win:SetHeight(-y + 40)
 
+  -- the display is unlocked exactly while this window is open
   win:SetScript("OnShow", function()
     for _, c in ipairs(controls) do c:Refresh() end
+    db.unlocked = true
+    ns.ApplyLayout()
   end)
-  -- closing the window locks the tape again
   win:SetScript("OnHide", function()
-    if db.unlocked then
-      db.unlocked = false
-      ns.ApplyLayout()
-    end
+    db.unlocked = false
+    ns.ApplyLayout()
   end)
   win:Hide()
 end

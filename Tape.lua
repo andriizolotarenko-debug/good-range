@@ -2,7 +2,8 @@
 --   tape   a digital-compass style ruler sliding under a gold needle: ticks every 0.1 yd (taller
 --          every 0.5, tallest on whole yards) coloured by zone, on a backing that is darkest at
 --          the ruler's bottom edge and fades out upwards and to the sides
---   label  the distance with a rounded MELEE / RANGED / DEAD ZONE / OUT OF RANGE badge on its left
+--   label  the distance with a rounded MELEE / RANGED / DEAD ZONE / OUT OF RANGE badge on its left;
+--          the badge has its own size and can be dragged away from the number (GoodRange.lua)
 --   number the coloured distance alone
 -- The tape and the number centre the whole-yard value on its digits; the label starts it right
 -- after the badge.
@@ -122,7 +123,6 @@ function Tape.New(parent, name)
   self.box:SetColorTexture(1, 0.82, 0, 0.12)
   self.hint = root:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   self.hint:SetPoint("TOP", root, "BOTTOM", 0, -2)
-  self.hint:SetText("Drag to move. Closing the Good Range window locks it.")
 
   self:SetUnlocked(false)
   return self
@@ -135,8 +135,9 @@ function Tape:SetZones(zoneAt)
   if self.value then self:Draw(self.value, self.label) end
 end
 
--- style: "tape", "label" or "number"
-function Tape:SetLayout(width, height, fontSize, ppy, font, style)
+-- style: "tape", "label" or "number". badgeScale: the badge's height as a part of the digits'
+-- (1 when nil).
+function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
   self.width, self.height, self.fontSize, self.ppy = width, height, fontSize, ppy
   self.showTape = style ~= "label" and style ~= "number"
   self.showBadge = style == "label"
@@ -160,11 +161,13 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
   local digitH = math.max(6, math.floor(fontSize * m.D + 0.5))
   local unitSize = math.max(8, math.floor(fontSize * 0.45 + 0.5))   -- same as the "yd" font above
 
-  -- badge: as tall as the digits; one width for every label (the longest), so nothing shifts
-  self.badge:SetHeight(digitH)
-  self.capL:SetWidth(digitH / 2)
-  self.capR:SetWidth(digitH / 2)
-  local textSize = math.max(7, math.floor(digitH * 0.5 + 0.5))
+  -- badge: as tall as the digits times badgeScale; one width for every label (the longest), so
+  -- nothing shifts
+  local badgeH = math.max(6, math.floor(digitH * (badgeScale or 1) + 0.5))
+  self.badge:SetHeight(badgeH)
+  self.capL:SetWidth(badgeH / 2)
+  self.capR:SetWidth(badgeH / 2)
+  local textSize = math.max(7, math.floor(badgeH * 0.5 + 0.5))
   setFont(self.badgeText, font, textSize, "")
   -- capitals sit above the middle of their line like digits do: lower the text by that much
   self.badgeText:ClearAllPoints()
@@ -175,8 +178,9 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     self.badgeText:SetText(text)
     longest = math.max(longest, self.badgeText:GetStringWidth() or 0)
   end
-  local badgeW = math.floor(longest + digitH * 0.9 + 0.5)
+  local badgeW = math.floor(longest + badgeH * 0.9 + 0.5)
   self.badge:SetWidth(badgeW)
+  self.badgeW = badgeW
 
   self.number:ClearAllPoints()
   self.unit:ClearAllPoints()
@@ -196,16 +200,17 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style)
     self.root:SetSize(slot + 2 * (2 + unitW), digitH + 4)
     self.number:SetPoint("CENTER", self.root, "CENTER", 0, -m.R * fontSize)
   else
-    -- label: [ badge ] [ number ] yd -- the number starts right after the badge, only "yd" moves
+    -- label: [ badge ] [ number ] yd -- the display is the number, left-aligned so only "yd"
+    -- moves; the badge sits just left of it, centred on the digits' middle line
     local gap = math.floor(fontSize * 0.25 + 0.5)
+    self.badgeGap = gap
     self.number:SetText("88")
     local slot = self.number:GetStringWidth() or fontSize
     local unitW = self.unit:GetStringWidth() or fontSize * 0.6
     self.number:SetJustifyH("LEFT")
-    self.root:SetSize(badgeW + gap + slot + 2 + unitW, digitH + 4)
-    self.badge:SetPoint("LEFT", self.root, "LEFT", 0, 0)
-    -- the digits' middle on the row's middle, level with the badge
-    self.number:SetPoint("LEFT", self.root, "LEFT", badgeW + gap, -m.R * fontSize)
+    self.root:SetSize(slot + 2 + unitW, digitH + 4)
+    self.number:SetPoint("LEFT", self.root, "LEFT", 0, -m.R * fontSize)
+    self.badge:SetPoint("RIGHT", self.root, "LEFT", -gap, 0)
   end
   -- "yd" stands on the digits' baseline
   self.unit:SetPoint("LEFT", self.number, "RIGHT", 2, (m.R - m.D / 2) * (fontSize - unitSize))
@@ -261,6 +266,9 @@ function Tape:SetUnlocked(on)
   self.box:SetShown(on)
   self.hint:SetShown(on)
   self.root:EnableMouse(on)
+  self.badge:EnableMouse(on and self.showBadge or false)
+  self.hint:SetText(self.showBadge and "Drag the number or the badge. Closing Good Range settings locks them."
+    or "Drag to move. Closing Good Range settings locks it.")
 end
 
 -- Colour, size and side fade for the ticks from 0.1-yd index `first` on, with the tape at v.

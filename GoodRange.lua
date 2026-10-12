@@ -25,7 +25,7 @@ local function itemLists(a, b)
 end
 
 ns.DEFAULTS = {
-  width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape",
+  width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape", badgeScale = 100,
   font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
   unlocked = false,
@@ -261,6 +261,18 @@ root:SetScript("OnDragStop", function(self)
 end)
 root:Hide()
 
+-- the label's badge drags on its own; once dragged it stays where it was put, wherever the number goes
+local badge = tape.badge
+badge:SetMovable(true)
+badge:SetClampedToScreen(true)
+badge:RegisterForDrag("LeftButton")
+badge:SetScript("OnDragStart", function(self) self:StartMoving() end)
+badge:SetScript("OnDragStop", function(self)
+  self:StopMovingOrSizing()
+  local point, _, rel, x, y = self:GetPoint()
+  db.badgePos = { point, rel, x, y }
+end)
+
 local function place()
   root:ClearAllPoints()
   if db.pos then
@@ -278,7 +290,11 @@ end
 
 function ns.ApplyLayout()
   if not db then return end
-  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display)
+  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100)
+  if db.display == "label" and db.badgePos then
+    badge:ClearAllPoints()
+    badge:SetPoint(db.badgePos[1], UIParent, db.badgePos[2], db.badgePos[3], db.badgePos[4])
+  end
   tape:SetUnlocked(db.unlocked)
   ns.RefreshShown()
 end
@@ -438,8 +454,9 @@ SlashCmdList.GOODRANGE = function(msg)
 end
 
 function ns.ResetPosition()
-  db.pos = nil
+  db.pos, db.badgePos = nil, nil
   place()
+  ns.ApplyLayout()
 end
 
 -- Events ------------------------------------------------------------------------------------

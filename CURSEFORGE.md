@@ -86,7 +86,7 @@ The ranges come from the game for the spell ranks you know, so range talents cou
 #### Three looks
 
 - **Tape:** a sliding ruler under a gold needle, like a digital compass.
-- **Label:** the number with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge right next to it.
+- **Label:** the number with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge next to it. The badge has its own size and can be dragged anywhere on its own.
 - **Number:** just the coloured distance.
 
 #### Settings
@@ -94,10 +94,10 @@ The ranges come from the game for the spell ranks you know, so range talents cou
 Click the minimap button or type `/goodrange` (`/gr`). The settings window is small and movable, so you see the result while you tune it.
 
 - Tape, label or number, with live previews
-- Width, height, font size and scale
+- Width, height, font size, scale and badge size
 - Font: Changa Bold (included) or one of the game's fonts
 - Show in combat, out of combat, on enemies, on friendly players
-- Unlock to drag it anywhere; closing the window locks it again
+- While the window is open the display shows a sample distance and can be dragged anywhere; closing the window locks it again
 
 #### Works on
 
