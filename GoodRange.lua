@@ -302,6 +302,7 @@ end
 -- Tick: estimation at 20 Hz on a hidden driver frame -----------------------------------------
 
 local goal, goalLabel        -- what the tape slides towards (display units) and its label
+local noData = false         -- no range check answered (the game hides them, e.g. secret values)
 local shown                  -- what the tape shows now
 local acc, clock = 0, 0
 local ZONE_EVERY = 0.25    -- s between checks of what you can use (rage, form, cooldowns ...)
@@ -333,7 +334,11 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
   local b = est:valueB(lo, hi)
 
-  if b then
+  -- nothing said in or out: "0+" would look like a reading, so say there is no data
+  noData = not hi and lo == 0
+  if noData then
+    shown = nil
+  elseif b then
     goal = b
     goalLabel = tostring(math.floor(goal))
   else
@@ -345,6 +350,8 @@ end)
 
 -- Drawing: every frame, the tape glides towards the latest estimate.
 root:SetScript("OnUpdate", function(_, elapsed)
+  if noData ~= (tape.noData or false) then tape:SetNoData(noData) end
+  if noData then return end
   if not goal then
     if not db.unlocked then return end
     goal, goalLabel = 21.4, "21"   -- sample while unlocked
@@ -511,7 +518,7 @@ events:SetScript("OnEvent", function(_, event)
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
     est:reset()
-    goal, shown = nil, nil
+    goal, shown, noData = nil, nil, false
     canHelpTarget = nil
     ns.ForgetBracket()
     if UnitExists("target") then

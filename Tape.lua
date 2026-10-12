@@ -7,7 +7,8 @@
 --   number the coloured distance alone
 -- The tape and the number centre the whole-yard value on its digits; the label starts it right
 -- after the badge.
--- Either way "yd" hangs off its right.
+-- Either way "yd" hangs off its right. When no range check answers (the game hides them), every
+-- look turns grey and half transparent and says "no data" instead.
 --
 -- Cheap to run: the ticks sit on one ruler frame that is moved as a whole each frame; they are
 -- only restyled (colour, size, side fade) when the tape passes a 0.1 yd step, and between two
@@ -258,7 +259,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
 
   self.first, self.drawn, self.text, self.zone = nil, nil, nil, nil
   self.number:SetText("")
-  if self.value then self:Draw(self.value, self.label) end
+  if self.noData then self:SetNoData(true) elseif self.value then self:Draw(self.value, self.label) end
 end
 
 function Tape:SetUnlocked(on)
@@ -292,10 +293,29 @@ function Tape:Restyle(first, v)
   end
 end
 
+-- No range answer at all: grey, half transparent, "no data" where the value goes (on the badge in
+-- the label look), the ruler hidden.
+function Tape:SetNoData(on)
+  self.noData = on
+  self.root:SetAlpha(on and 0.5 or 1)
+  self.ruler:SetShown(not on)
+  self.unit:SetShown(not on)
+  if on then
+    local c = Tape.COLORS.far
+    self.number:SetText(self.showBadge and "" or "no data")
+    self.number:SetTextColor(c[1], c[2], c[3])
+    if self.showBadge then
+      self.badgeText:SetText("NO DATA")
+      for _, t in ipairs({ self.capL, self.mid, self.capR }) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
+    end
+  end
+  self.first, self.drawn, self.text, self.zone = nil, nil, nil, nil   -- redraw in full once data is back
+end
+
 -- v: distance in yd (fractional, drives the tape). label: the text on top (whole yards).
 function Tape:Draw(v, label)
   self.value, self.label = v, label
-  if not self.width or not self.zoneAt then return end
+  if not self.width or not self.zoneAt or self.noData then return end
   if v == self.drawn and label == self.text and self.zone then return end
   self.drawn = v
 
