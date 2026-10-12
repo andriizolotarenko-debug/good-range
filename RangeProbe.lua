@@ -77,7 +77,7 @@ local function build()
   local _, race = UnitRace("player")
   for index, range in pairs(INTERACT_RACE[race] or INTERACT) do group(range).interact = index end
 
-  local harmWork, helpWork, known = {}, {}, {}
+  local harmWork, helpWork, known, helpIds = {}, {}, {}, {}
   for _, id in ipairs(API.Spellbook()) do
     local info = API.GetSpellInfo(id)
     if info then
@@ -91,11 +91,13 @@ local function build()
         harmWork[#harmWork + 1] = { min, max }
       elseif helpful and max > 0 then
         helpWork[#helpWork + 1] = { min, max }
+        helpIds[#helpIds + 1] = id
       end
     end
   end
   spellbook.known = known
   spellbook.generic = { harm = ns.Zones.merge(harmWork), help = ns.Zones.merge(helpWork) }
+  spellbook.helpIds = helpIds
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -224,7 +226,6 @@ local RETAIL = interface >= 100000
 local function refreshZones()
   local ctx = {
     class = playerClass, hostile = hostileTarget, known = spellbook.known, generic = spellbook.generic,
-    friendlyNpc = not hostileTarget and UnitExists("target") and not UnitIsPlayer("target"),
     getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
     form = playerClass == "DRUID" and API.Form() or nil,
     mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
@@ -338,15 +339,36 @@ root:SetScript("OnUpdate", function(_, elapsed)
   tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
 end)
 
+-- Can one of your heals or buffs go on this unit? (A spell that can't target it, like Mend Pet
+-- on a player, gives no range answer at all.) Checked once per target.
+local canHelpTarget
+local function canHelp(unit)
+  if canHelpTarget == nil then
+    canHelpTarget = false
+    for _, id in ipairs(spellbook.helpIds or {}) do
+      local v = API.IsSpellInRange(id, unit)
+      if not issecret(v) and v ~= nil then
+        canHelpTarget = true
+        break
+      end
+    end
+  end
+  return canHelpTarget
+end
+
 -- Shown for a living target, if the options allow it in this state (combat, target kind).
+-- Never for friendly NPCs; for friendly players only if you can heal or buff them.
 function ns.RefreshShown()
   local has = UnitExists("target") and not UnitIsDeadOrGhost("target")
   if has and db then
     local fighting = UnitAffectingCombat("player")
     local hostile = UnitCanAttack("player", "target")
     if issecret(hostile) then hostile = true end
+    local player = UnitIsPlayer("target")
+    if issecret(player) then player = true end
     if fighting and not db.inCombat or not fighting and not db.outOfCombat
-        or hostile and not db.enemy or not hostile and not db.friendly then
+        or hostile and not db.enemy or not hostile and not db.friendly
+        or not hostile and (not player or not canHelp("target")) then
       has = false
     end
   end
@@ -471,6 +493,7 @@ events:SetScript("OnEvent", function(_, event)
   elseif event == "PLAYER_TARGET_CHANGED" then
     est:reset()
     goal, shown = nil, nil
+    canHelpTarget = nil
     ns.ForgetBracket()
     if UnitExists("target") then
       local hostile = UnitCanAttack("player", "target")
