@@ -1,0 +1,10 @@
+package-as: GoodRange
+
+enable-nolib-creation: no
+
+ignore:
+  - .github
+  - .gitignore
+  - store
+  - tools
+  - CURSEFORGE.md

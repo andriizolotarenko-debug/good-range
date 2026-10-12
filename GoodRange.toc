@@ -1,10 +1,12 @@
 ## Interface: 120100, 16001, 20506
 ## Title: Good Range
 ## Notes: Distance to your target on a sliding range tape, coloured by what your class can do from there.
-## Version: 0.4
+## Author: Andrii Zolotarenko
+## Version: @project-version@
 ## IconTexture: Interface\AddOns\GoodRange\media\icon
 ## AddonCompartmentFunc: GoodRange_OnAddonCompartmentClick
 ## SavedVariables: GoodRangeDB
+## X-Curse-Project-ID: 1740353
 
 libs\LibStub\LibStub.lua
 libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
