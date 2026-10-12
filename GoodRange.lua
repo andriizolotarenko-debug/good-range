@@ -7,6 +7,9 @@ local issecret = issecretvalue or function() return false end
 local API = ns.API
 local TICK = 0.05
 local MELEE = ns.Zones.MELEE
+-- Some spells reach "anywhere" (50000 yd); as a range step they would put a far target in a
+-- 100-50000 yd bracket and show its middle. No attack or heal reaches past the longest item step.
+local MAX_STEP = 100
 
 -- Range items: Classic Era and WoW: Forever (interface 1xxxx) prefer the Era list, the rest the
 -- modern one; each falls back on the other, and only items the client knows are used.
@@ -83,6 +86,7 @@ local function build()
     if info then
       known[info.name] = id
       local min, max = info.minRange or 0, info.maxRange or 0
+      if max > MAX_STEP then max = 0 end
       -- A spell with a minimum range says "false" up close too, so it can't bound the bracket.
       if max > 0 and min == 0 then table.insert(group(max).spells, id) end
       -- Fallback zones for classes / clients the list in Zones.lua does not cover.
