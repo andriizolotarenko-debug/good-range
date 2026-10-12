@@ -1,5 +1,5 @@
-"""Draws the Good Range icon: you (the gold minimap arrow) in the middle of coloured range rings,
-an enemy marker on the green ring and a gold measuring line between you.
+"""Draws the Good Range icon: gold "GR" letters in the middle of the coloured range rings (blue
+melee, red dead zone, green your range, grey out of range).
 
 Writes media/icon.tga (64x64, addon list and minimap), store/icon_400.png (CurseForge) and
 store/icon_1024.png. Run from the repo root: python3 tools/make_icon.py
@@ -87,58 +87,56 @@ def main():
                 ld.ellipse([C - edge, C - edge, C + edge, C + edge], outline=(10, 12, 18, 200), width=10)
     canvas = Image.alpha_composite(canvas, lines)
 
-    # enemy on the green ring, upper right
-    ang = math.radians(-45)
-    ex, ey = C + 700 * math.cos(ang), C + 700 * math.sin(ang)
-    hx, hy = C, C
+    # "GR" in gold: Changa Bold (the addon's font), a top-to-bottom gold gradient, a bevel
+    # highlight, a dark rim and a soft glow
+    from PIL import ImageFont
+    font = ImageFont.truetype("media/Changa-Bold.ttf", 820)
+    text = "GR"
+    mask = Image.new("L", (N, N), 0)
+    md = ImageDraw.Draw(mask)
+    x0, y0, x1, y1 = md.textbbox((0, 0), text, font=font)
+    tx, ty = C - (x0 + x1) / 2, C - (y0 + y1) / 2
+    md.text((tx, ty), text, font=font, fill=255)
+    top, bottom = ty + y0, ty + y1
 
-    # measuring line: gold, with ticks, from you to the enemy
-    meas = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    md = ImageDraw.Draw(meas)
-    ux, uy = math.cos(ang), math.sin(ang)
-    px_, py_ = -uy, ux
-    start, end = 170, 700 - 160
-    md.line([(hx + ux * start, hy + uy * start), (hx + ux * end, hy + uy * end)], fill=(20, 12, 0, 255), width=96)
-    md.line([(hx + ux * start, hy + uy * start), (hx + ux * end, hy + uy * end)], fill=(255, 214, 60, 255), width=64)
-    for t in range(start + 70, end - 20, 90):
-        cx_, cy_ = hx + ux * t, hy + uy * t
-        md.line([(cx_ - px_ * 70, cy_ - py_ * 70), (cx_ + px_ * 70, cy_ + py_ * 70)], fill=(20, 12, 0, 255), width=40)
-        md.line([(cx_ - px_ * 60, cy_ - py_ * 60), (cx_ + px_ * 60, cy_ + py_ * 60)], fill=(255, 214, 60, 255), width=22)
-    canvas = Image.alpha_composite(canvas, glow(meas, 24, 0.7))
-    canvas = Image.alpha_composite(canvas, meas)
+    def vertical(stops):
+        g = Image.new("RGBA", (N, N))
+        px = g.load()
+        for y in range(N):
+            t = min(1, max(0, (y - top) / (bottom - top)))
+            for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+                if t <= t1:
+                    k = (t - t0) / (t1 - t0) if t1 > t0 else 0
+                    c = tuple(round(u + (v - u) * k) for u, v in zip(c0, c1))
+                    break
+            for x in range(N):
+                px[x, y] = c + (255,)
+        return g
 
-    # enemy marker: a red gem (raid-marker style diamond) with a dark rim and a highlight
-    enemy = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    ed = ImageDraw.Draw(enemy)
-    s = 175
-    ed.polygon([(ex, ey - s - 26), (ex + s + 26, ey), (ex, ey + s + 26), (ex - s - 26, ey)], fill=(20, 4, 4, 255))
-    ed.polygon([(ex, ey - s), (ex + s, ey), (ex, ey + s), (ex - s, ey)], fill=(222, 38, 38, 255))
-    ed.polygon([(ex, ey - s), (ex + s, ey), (ex, ey)], fill=(255, 92, 80, 255))
-    ed.polygon([(ex - s, ey), (ex, ey + s), (ex, ey)], fill=(160, 20, 24, 255))
-    ed.polygon([(ex - s * 0.45, ey - s * 0.25), (ex - s * 0.05, ey - s * 0.62), (ex + s * 0.05, ey - s * 0.5),
-                (ex - s * 0.35, ey - s * 0.12)], fill=(255, 210, 200, 230))
-    canvas = Image.alpha_composite(canvas, glow(enemy, 50, 1.2))
-    canvas = Image.alpha_composite(canvas, enemy)
-
-    # you: the gold minimap arrow, pointing at the enemy
-    you = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    yd = ImageDraw.Draw(you)
-
-    def arrow(scale):
-        pts = [(0, -1.0), (0.62, 0.72), (0, 0.38), (-0.62, 0.72)]
-        rot = ang + math.pi / 2
-        out = []
-        for x, y in pts:
-            x, y = x * scale, y * scale
-            out.append((hx + x * math.cos(rot) - y * math.sin(rot), hy + x * math.sin(rot) + y * math.cos(rot)))
-        return out
-
-    yd.polygon(arrow(250), fill=(30, 18, 0, 255))
-    yd.polygon(arrow(205), fill=(255, 205, 40, 255))
-    half = arrow(205)
-    yd.polygon([half[0], half[1], half[2]], fill=(255, 238, 140, 255))
-    canvas = Image.alpha_composite(canvas, glow(you, 40, 1.0))
-    canvas = Image.alpha_composite(canvas, you)
+    gold = vertical([(0.0, (255, 246, 196)), (0.38, (255, 212, 72)), (0.62, (226, 150, 24)),
+                     (1.0, (120, 66, 10))])
+    rim = mask.filter(ImageFilter.MaxFilter(41))
+    shadow = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    shadow.paste((10, 6, 0, 230), (0, 0), rim.filter(ImageFilter.GaussianBlur(26)))
+    canvas = Image.alpha_composite(canvas, shadow)
+    dark = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    dark.paste((34, 20, 2, 255), (0, 0), rim)
+    canvas = Image.alpha_composite(canvas, dark)
+    body = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    body.paste(gold, (0, 0), mask)
+    canvas = Image.alpha_composite(canvas, body)
+    # bevel: light on the upper-left edges, shade on the lower-right ones
+    inner = mask.filter(ImageFilter.MinFilter(25))
+    light = ImageChops.subtract(mask, ImageChops.offset(inner, 10, 10))
+    light = ImageChops.multiply(light, ImageChops.subtract(mask, inner))
+    hl = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    hl.paste((255, 252, 225, 200), (0, 0), light.filter(ImageFilter.GaussianBlur(3)))
+    canvas = Image.alpha_composite(canvas, hl)
+    dk = ImageChops.subtract(mask, ImageChops.offset(inner, -10, -10))
+    dk = ImageChops.multiply(dk, ImageChops.subtract(mask, inner))
+    sh = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    sh.paste((90, 46, 4, 170), (0, 0), dk.filter(ImageFilter.GaussianBlur(3)))
+    canvas = Image.alpha_composite(canvas, sh)
 
     # bronze bevelled frame
     frame = Image.new("RGBA", (N, N), (0, 0, 0, 0))
