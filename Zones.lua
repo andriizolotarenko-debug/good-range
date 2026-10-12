@@ -94,6 +94,11 @@ Zones.CLASS = {
     help = ids(0, 40, 331, 8004, 1064),   -- Healing Wave, Lesser Healing Wave, Chain Heal
   },
   -- Holy (most talent points in tree 1) heals and casts from range, the others fight in melee
+  -- Retail-only classes: no Classic spell list, just their role
+  DEATHKNIGHT = { primary = "melee" },
+  DEMONHUNTER = { primary = "melee" },
+  MONK = { primary = "melee" },
+  EVOKER = { primary = "ranged" },
   PALADIN = { primary = function(ctx) return ctx.mainTree == 1 and "ranged" or "melee" end, harm = {
     { "judge", "JUDGE", ids(0, 10, 20271) },                       -- Judgement
     { "ranged", "RANGED", join(ids(0, 30, 879, 24275), ids(0, 20, 20473)) },   -- Exorcism, HoW, Holy Shock

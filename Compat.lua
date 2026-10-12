@@ -147,14 +147,17 @@ function API.MainTree()
   return best
 end
 
--- Retail: "melee" or "ranged" from your specialization, or nil.
-local MELEE_SPECS = { [71] = true, [72] = true, [73] = true, [259] = true, [260] = true, [261] = true,
-  [250] = true, [251] = true, [252] = true, [66] = true, [70] = true, [268] = true, [269] = true,
-  [577] = true, [581] = true, [103] = true, [104] = true, [263] = true, [255] = true }
+-- Retail: "melee" or "ranged" from your specialization, or nil for any other spec (the
+-- starting specs of new characters, specs added later): then your class decides.
+local SPEC_ROLE = {}
+for _, id in ipairs({ 71, 72, 73, 259, 260, 261, 250, 251, 252, 66, 70, 268, 269, 577, 581,
+  103, 104, 263, 255 }) do SPEC_ROLE[id] = "melee" end
+for _, id in ipairs({ 62, 63, 64, 65, 102, 105, 253, 254, 256, 257, 258, 262, 264, 265, 266,
+  267, 270, 1467, 1468, 1473 }) do SPEC_ROLE[id] = "ranged" end
 function API.SpecRole()
   if not (GetSpecialization and GetSpecializationInfo) then return nil end
   local index = GetSpecialization()
   local id = index and GetSpecializationInfo(index)
   if not id or issecret(id) then return nil end
-  return MELEE_SPECS[id] and "melee" or "ranged"
+  return SPEC_ROLE[id]
 end
