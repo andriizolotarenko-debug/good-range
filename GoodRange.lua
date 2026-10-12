@@ -349,7 +349,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     goal = lo
     goalLabel = math.floor(goal) .. "+"
   end
-
+  -- two digits at most, so the number never gets wider: 99 yd and beyond read "99+"
+  if not noData and goal >= 99 then goalLabel = "99+" end
 end)
 
 -- Drawing: every frame, the tape glides towards the latest estimate.
