@@ -1,8 +1,10 @@
 """Draws the Good Range icon: gold "GR" letters in the middle of the coloured range rings (blue
 melee, red dead zone, green your range, grey out of range).
 
-Writes media/icon.tga (64x64, addon list and minimap), store/icon_400.png (CurseForge) and
-store/icon_1024.png. Run from the repo root: python3 tools/make_icon.py
+Writes media/icon.tga (64x64, addon list and minimap), store/icon_400.png and store/icon_1024.png
+(rounded corners), and store/icon_square_400.png / store/icon_square_1024.png (square, no
+transparent corners, for CurseForge and other square slots). Run from the repo root:
+python3 tools/make_icon.py
 """
 import math
 import os
@@ -55,12 +57,15 @@ def ring(size, r, width, color):
     return layer
 
 
-def main():
+def main(square=False):
+    # outer edge and inner edge of the bronze frame: (inset, corner radius)
+    out_i, out_r = (0, 0) if square else (40, 300)
+    in_i, in_r = (80, 40) if square else (120, 230)
     canvas = Image.new("RGBA", (N, N), (0, 0, 0, 0))
 
     # tile: dark slate, lighter in the middle
     tile = radial(N, (38, 48, 66, 255), (8, 10, 16, 255), radius=N * 0.72)
-    canvas.paste(tile, (0, 0), rounded_mask(N, 40, 300))
+    canvas.paste(tile, (0, 0), rounded_mask(N, out_i, out_r))
 
     # range rings, outer to inner: grey (out of range), green (your range), red (dead zone), blue (melee)
     rings = [
@@ -140,25 +145,33 @@ def main():
 
     # bronze bevelled frame
     frame = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    outer = rounded_mask(N, 40, 300)
-    inner = rounded_mask(N, 120, 230)
+    outer = rounded_mask(N, out_i, out_r)
+    inner = rounded_mask(N, in_i, in_r)
     band = ImageChops.subtract(outer, inner)
     bronze = radial(N, (246, 206, 120, 255), (110, 70, 26, 255), center=(N * 0.2, N * 0.15), radius=N * 1.15)
     frame.paste(bronze, (0, 0), band)
     edge = Image.new("RGBA", (N, N), (0, 0, 0, 0))
     eg = ImageDraw.Draw(edge)
-    eg.rounded_rectangle([40, 40, N - 41, N - 41], radius=300, outline=(40, 24, 6, 255), width=10)
-    eg.rounded_rectangle([120, 120, N - 121, N - 121], radius=230, outline=(30, 18, 4, 255), width=12)
-    eg.rounded_rectangle([60, 60, N - 61, N - 61], radius=282, outline=(255, 236, 180, 140), width=6)
+    eg.rounded_rectangle([out_i, out_i, N - 1 - out_i, N - 1 - out_i], radius=out_r, outline=(40, 24, 6, 255), width=10)
+    eg.rounded_rectangle([in_i, in_i, N - 1 - in_i, N - 1 - in_i], radius=in_r, outline=(30, 18, 4, 255), width=12)
+    eg.rounded_rectangle([out_i + 20, out_i + 20, N - 21 - out_i, N - 21 - out_i], radius=max(0, out_r - 18),
+                         outline=(255, 236, 180, 140), width=6)
     canvas = Image.alpha_composite(canvas, frame)
     canvas = Image.alpha_composite(canvas, edge)
 
     # everything inside the rounded tile only
-    clip = rounded_mask(N, 40, 300)
+    clip = rounded_mask(N, out_i, out_r)
     a = ImageChops.multiply(canvas.getchannel("A"), clip)
     canvas.putalpha(a)
 
     os.makedirs("store", exist_ok=True)
+    if square:
+        flat = Image.new("RGBA", (N, N), (8, 10, 16, 255))
+        canvas = Image.alpha_composite(flat, canvas).convert("RGB")
+        canvas.resize((1024, 1024), Image.LANCZOS).save("store/icon_square_1024.png")
+        canvas.resize((400, 400), Image.LANCZOS).save("store/icon_square_400.png")
+        print("store/icon_square_1024.png store/icon_square_400.png")
+        return
     canvas.resize((1024, 1024), Image.LANCZOS).save("store/icon_1024.png")
     canvas.resize((400, 400), Image.LANCZOS).save("store/icon_400.png")
     canvas.resize((64, 64), Image.LANCZOS).save("media/icon.tga")
@@ -167,3 +180,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    main(square=True)
