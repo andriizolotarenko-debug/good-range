@@ -9,6 +9,7 @@ local API = ns.API
 -- crossing is timed to a tick; the display carries the estimate on between ticks.
 local TICK = 0.03
 local MELEE = ns.Zones.MELEE
+local Estimator = ns.Estimator
 -- Some spells reach "anywhere" (50000 yd); as a range step they would put a far target in a
 -- 100-50000 yd bracket and show its middle. No attack or heal reaches past the longest item step.
 local MAX_STEP = 100
@@ -393,7 +394,16 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 
   local lo, hi = measure(unit, hostile, clock)
   local ts = speedOf(unit)
-  local sp = (speedOf("player") or 0) + (ts or 0)
+  local ps = speedOf("player")
+  if ps == nil and IsPlayerMoving then
+    -- the game hides speeds in dungeons: moving or not is enough to start and stop the estimate
+    local m = IsPlayerMoving()
+    if not issecret(m) then ps = m and Estimator.RUN or 0 end
+  end
+  -- combined speed; nil (unknown) unless both are known, or you move and the target's is hidden
+  -- (counted as standing then, as before). Standing with the target's hidden is unknown: the
+  -- estimate then moves only once a crossing shows the target does.
+  local sp = ps and ts and ps + ts or ps and ps > 0.05 and ps or nil
   local px, py = playerPos()
   -- An unknown target speed counts as standing; the next crossing corrects a wrong guess.
   local was = goal

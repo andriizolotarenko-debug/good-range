@@ -20,6 +20,7 @@ Estimator.REACH = 1.5     -- yd; range checks measure edge to edge, positions ce
 Estimator.SMOOTH = 0.15   -- s; smoothing of the player's velocity
 Estimator.SOFT = 2        -- yd; a guessed rate slows down this close to the bracket edge ahead
 Estimator.CREEP = 0.25    -- the slowest it gets there, as a part of the rate
+Estimator.RUN = 7         -- yd/s; run speed, the guess when the game hides every speed
 Estimator.FIXES = 6       -- crossings kept to place a standing target (see solve)
 Estimator.DAMP = 0.1      -- how firmly solve keeps the target point where it was
 
@@ -59,11 +60,19 @@ function Estimator:valueB(lo, hi)
 end
 
 -- One tick. lo: largest range known to be out (0 if none), hi: smallest range known to be in
--- (nil if none). sp: combined speed of player and target in yd/s. px, py: the player's world
+-- (nil if none). sp: combined speed of player and target in yd/s, or nil where the game hides
+-- it (dungeons): then the estimate stands until a crossing shows something moves, and from there
+-- keeps the rate of the last crossings, easing into the next edge. px, py: the player's world
 -- position, or nil where the game hides it. still: the target is not moving.
 -- Returns a crossing record { at, dir, a, b, mid } when a boundary was crossed, else nil.
 function Estimator:update(now, dt, lo, hi, sp, px, py, still)
+  local known = sp ~= nil
   sp = sp or 0
+  if known then
+    self.evidence = nil
+  elseif self.evidence == nil then
+    self.evidence = false   -- speed just went unknown: nothing has shown movement yet
+  end
   self:track(dt, px, py)
   if self.tx and (not px or not still) then self.tx, self.ty, self.fixes = nil, nil, nil end
 
@@ -71,8 +80,8 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
     -- Position mode: the target stands at (tx, ty); the range is the distance to it.
     self.b = math.max(0, math.sqrt((px - self.tx) ^ 2 + (py - self.ty) ^ 2) - Estimator.REACH)
   elseif self.b then
-    local moving = sp > 0.05
-    if moving and not self.moving then
+    local moving = known and sp > 0.05 or not known and self.evidence
+    if known and moving and not self.moving then
       -- Starting from rest: if the estimate sits on an edge of the bracket, the only way it can
       -- change is back into the bracket, so start moving that way.
       if self.b <= lo + Estimator.PIN then
@@ -84,23 +93,25 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
     local rate = 0
     if moving then
       rate = self.bRate
-      if self.refSpeed and self.refSpeed > 0.5 then
+      if known and self.refSpeed and self.refSpeed > 0.5 then
         rate = rate * math.min(sp / self.refSpeed, Estimator.MAX_SCALE)
       end
       -- A guessed rate (straight at the target at full speed) is often too fast: rather than
       -- run into the next edge and stop dead there until the game confirms the crossing, ease
       -- in over the last SOFT yards.
       local edge = rate > 0 and hi or rate < 0 and lo or nil
-      if self.guessed and edge then
+      if (self.guessed or not known) and edge then
         local gap = math.abs(edge - self.b)
         if gap < Estimator.SOFT then rate = rate * math.max(Estimator.CREEP, gap / Estimator.SOFT) end
       end
     end
     self.b = self.b + rate * dt
   end
-  self.moving = sp > 0.05
-  self.spSum = (self.spSum or 0) + sp * dt
-  self.spT = (self.spT or 0) + dt
+  self.moving = known and sp > 0.05 or not known and self.evidence
+  if known then
+    self.spSum = (self.spSum or 0) + sp * dt
+    self.spT = (self.spT or 0) + dt
+  end
 
   local crossing
   local oldLo, oldHi = self.lo, self.hi
@@ -136,15 +147,19 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
     local measured = fresh and (at - last.at) / (t - last.t)
     if measured and measured * dir > 0 then
       self.bRate = measured
-      self.refSpeed = self.spT > 0 and self.spSum / self.spT or sp
+      self.refSpeed = (self.spT or 0) > 0 and self.spSum / self.spT or nil
       self.guessed = false
+      self.pace = math.abs(measured)
     else
-      self.bRate = dir * math.max(sp, 1)
-      self.refSpeed = math.max(sp, 1)
+      -- with no speed to go by, the pace measured last time (or a run)
+      local guess = known and math.max(sp, 1) or self.pace or Estimator.RUN
+      self.bRate = dir * guess
+      self.refSpeed = known and guess or nil
       self.guessed = true
     end
     -- and it has moved on since: by half a tick at the rate it moves now
-    self.b = at + (sp > 0.05 and self.bRate * dt / 2 or 0)
+    self.b = at + ((known and sp > 0.05 or not known and self.evidence) and self.bRate * dt / 2 or 0)
+    if not known then self.evidence = true end
     self.spSum, self.spT = 0, 0
     self.last = { t = t, at = at }
 
