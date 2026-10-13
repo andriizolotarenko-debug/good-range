@@ -1,7 +1,8 @@
 -- The range display, in one of three looks:
 --   tape   a digital-compass style ruler sliding under a gold needle: ticks every 0.1 yd (taller
---          every 0.5, tallest on whole yards) coloured by zone, on a backing that is darkest at
---          the ruler's bottom edge and fades out upwards and to the sides
+--          every 0.5, tallest on whole yards; fewer when the scale would crowd them) coloured by
+--          zone, on a backing that is darkest at the ruler's bottom edge and fades out upwards and
+--          to the sides
 --   label  the distance with a rounded MELEE / RANGED / DEAD ZONE / OUT OF RANGE badge on its left;
 --          the badge has its own size and can be dragged away from the number (GoodRange.lua)
 --   number the coloured distance alone
@@ -11,7 +12,7 @@
 -- look turns grey and half transparent and says "no data" instead.
 --
 -- Cheap to run: the ticks sit on one ruler frame that is moved as a whole each frame; they are
--- only restyled (colour, size, side fade) when the tape passes a 0.1 yd step, and between two
+-- only restyled (colour, size, side fade) when the tape passes a tick, and between two
 -- restyles the ruler moves less than one tick apart. Nothing is redrawn while the value stands
 -- still.
 local _, ns = ...
@@ -24,6 +25,8 @@ local MEDIA = "Interface\\AddOns\\GoodRange\\media\\"
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 local SLICES = 28          -- backing plate columns (each a vertical gradient)
 local BASE_H = 40          -- design height; tick sizes scale with height / BASE_H
+local TICK_GAP = 6         -- px; ticks closer than this run together, so fewer are drawn
+local DIVS = { 10, 5, 2, 1 }   -- ticks per yard to choose from, finest first
 
 -- Fonts to choose from: Changa ships with the addon (OFL), the rest are built in.
 Tape.FONTS = {
@@ -241,8 +244,14 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
   self.stem:SetPoint("BOTTOM", self.tip, "TOP")
   self.stem:SetWidth(nw)
 
-  -- one tick per 0.1 yd across the visible span, laid out on the ruler once
-  local step = ppy / 10
+  -- ticks every 0.1 yd, or every 0.2 / 0.5 / 1 yd when the scale would crowd them; laid out on
+  -- the ruler once across the visible span
+  local div = DIVS[#DIVS]
+  for _, d in ipairs(DIVS) do
+    if ppy / d >= TICK_GAP then div = d; break end
+  end
+  self.div = div
+  local step = ppy / div
   local need = math.ceil(width / step) + 4
   self.count = need
   for i = 1, need do
@@ -272,20 +281,21 @@ function Tape:SetUnlocked(on)
     or "Drag to move. Closing Good Range settings locks it.")
 end
 
--- Colour, size and side fade for the ticks from 0.1-yd index `first` on, with the tape at v.
+-- Colour, size and side fade for the ticks from tick index `first` on (1 / div yd each), with
+-- the tape at v.
 function Tape:Restyle(first, v)
   self.first = first
   local colors, zoneAt, k = Tape.COLORS, self.zoneAt, self.k
-  local cx, ppy = self.width / 2, self.ppy
+  local cx, ppy, div = self.width / 2, self.ppy, self.div
   for n = 1, self.count do
     local i = first + n - 1
     local tick = self.ticks[n]
-    local f = fade(cx + (i / 10 - v) * ppy, cx)
+    local f = fade(cx + (i / div - v) * ppy, cx)
     if i < 0 or f <= 0.01 then
       tick:Hide()
     else
-      local major, halfTick = i % 10 == 0, i % 5 == 0
-      local c = colors[zoneAt(i / 10)]
+      local major, halfTick = i % div == 0, 2 * i % div == 0
+      local c = colors[zoneAt(i / div)]
       tick:SetSize(2, (major and 20 or halfTick and 12 or 6) * k)
       tick:SetVertexColor(c[1], c[2], c[3], f * (major and 1 or halfTick and 0.9 or 0.75))
       tick:Show()
@@ -321,11 +331,12 @@ function Tape:Draw(v, label)
 
   if self.showTape then
     local cx, ppy = self.width / 2, self.ppy
-    local first = math.floor((v - cx / ppy) * 10) - 1
+    local div = self.div
+    local first = math.floor((v - cx / ppy) * div) - 1
     if first ~= self.first then self:Restyle(first, v) end
-    -- tick n sits at ruler x (n-1) * step and stands for (first + n - 1) / 10
+    -- tick n sits at ruler x (n-1) * step and stands for (first + n - 1) / div
     self.ruler:ClearAllPoints()
-    self.ruler:SetPoint("TOPLEFT", self.area, "TOPLEFT", cx + (first / 10 - v) * ppy, 0)
+    self.ruler:SetPoint("TOPLEFT", self.area, "TOPLEFT", cx + (first / div - v) * ppy, 0)
   end
 
   local zone, badge = self.zoneAt(v)
