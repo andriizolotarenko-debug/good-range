@@ -277,16 +277,29 @@ local function build()
 end
 
 function ns.CreateOptions()
-  -- Options > AddOns > Good Range: a pointer to the window (clients with the new Settings UI)
-  if not (Settings and Settings.RegisterVerticalLayoutCategory and CreateSettingsButtonInitializer) then
+  -- Options > AddOns > Good Range: a plain panel with a button to the window (clients with the new
+  -- Settings UI). A canvas, not a list of settings: the Options search reads every list entry,
+  -- and reading one made by an addon taints the search, so the game then blocked Blizzard's own
+  -- settings it found (typing "nameplates") and blamed Good Range.
+  if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory) then
     return
   end
-  local cat, layout = Settings.RegisterVerticalLayoutCategory("Good Range")
-  layout:AddInitializer(CreateSettingsButtonInitializer("Good Range", "Open settings window", function()
+  local panel = CreateFrame("Frame")
+  local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 16, -16)
+  title:SetText("Good Range")
+  local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  note:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+  note:SetText("A small window you can move, so the display stays in view while you tune it.")
+  local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  open:SetSize(180, 24)
+  open:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -12)
+  open:SetText("Open settings window")
+  open:SetScript("OnClick", function()
     if SettingsPanel then HideUIPanel(SettingsPanel) end
     ns.OpenOptions()
-  end, "A small window you can move, so the tape stays in view while you tune it.", true))
-  Settings.RegisterAddOnCategory(cat)
+  end)
+  Settings.RegisterAddOnCategory(Settings.RegisterCanvasLayoutCategory(panel, "Good Range"))
 end
 
 function ns.OpenOptions()
