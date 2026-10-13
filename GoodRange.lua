@@ -595,6 +595,7 @@ events:SetScript("OnEvent", function(_, event)
     for k, v in pairs(ns.DEFAULTS) do
       if db[k] == nil then db[k] = v end
     end
+    db.ppy = math.min(40, math.max(10, db.ppy))   -- the ruler scale runs 10-40 now (was 15-100)
     ns.db = db
     db.unlocked = false   -- the tape is only unlocked while the settings window is open
     build()

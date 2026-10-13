@@ -25,8 +25,8 @@ local MEDIA = "Interface\\AddOns\\GoodRange\\media\\"
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 local SLICES = 28          -- backing plate columns (each a vertical gradient)
 local BASE_H = 40          -- design height; tick sizes scale with height / BASE_H
-local TICK_GAP = 6         -- px; ticks closer than this run together, so fewer are drawn
-local DIVS = { 10, 5, 2, 1 }   -- ticks per yard to choose from, finest first
+local TICK_GAP = 5         -- px; ticks closer than this run together, so fewer are drawn
+local DIVS = { 10, 5, 4, 2, 1 }   -- ticks per yard to choose from, finest first
 
 -- Fonts to choose from: Changa ships with the addon (OFL), the rest are built in.
 Tape.FONTS = {
@@ -244,7 +244,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
   self.stem:SetPoint("BOTTOM", self.tip, "TOP")
   self.stem:SetWidth(nw)
 
-  -- ticks every 0.1 yd, or every 0.2 / 0.5 / 1 yd when the scale would crowd them; laid out on
+  -- ticks every 0.1 yd, or every 0.2 / 0.25 / 0.5 / 1 yd when the scale would crowd them; laid out on
   -- the ruler once across the visible span
   local div = DIVS[#DIVS]
   for _, d in ipairs(DIVS) do

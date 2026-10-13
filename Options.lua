@@ -210,7 +210,7 @@ local function build()
   y = y - 44
   controls[#controls + 1] = slider(win, "Font size", y, "fontSize", 20, 96, 1)
   y = y - 44
-  controls[#controls + 1] = slider(win, "Scale (pixels per yard)", y, "ppy", 15, 100, 1)
+  controls[#controls + 1] = slider(win, "Ruler Scale", y, "ppy", 10, 40, 1)
   y = y - 44
   controls[#controls + 1] = slider(win, "Badge size (label look, %)", y, "badgeScale", 50, 200, 5)
 
