@@ -277,12 +277,19 @@ root:SetMovable(true)
 root:SetClampedToScreen(true)
 root:RegisterForDrag("LeftButton")
 local plate   -- the target's nameplate the display hangs over, if any (see place)
-root:SetScript("OnDragStart", function(self) if not plate then self:StartMoving() end end)
+-- After hanging on a nameplate, the game can hand the frame back no longer movable (Retail 12.x):
+-- make it movable again before each drag, and never let a refusal raise an error.
+local function startMoving(self)
+  if plate then return end
+  if not self:IsMovable() then pcall(self.SetMovable, self, true) end
+  pcall(self.StartMoving, self)
+end
+root:SetScript("OnDragStart", startMoving)
 root:SetScript("OnDragStop", function(self)
   if plate then return end
   self:StopMovingOrSizing()
   local point, _, rel, x, y = self:GetPoint()
-  db.pos = { point, rel, x, y }
+  if x and not issecret(x) and not issecret(y) then db.pos = { point, rel, x, y } end
 end)
 root:Hide()
 
@@ -291,12 +298,12 @@ local badge = tape.badge
 badge:SetMovable(true)
 badge:SetClampedToScreen(true)
 badge:RegisterForDrag("LeftButton")
-badge:SetScript("OnDragStart", function(self) if not plate then self:StartMoving() end end)
+badge:SetScript("OnDragStart", startMoving)
 badge:SetScript("OnDragStop", function(self)
   if plate then return end
   self:StopMovingOrSizing()
   local point, _, rel, x, y = self:GetPoint()
-  db.badgePos = { point, rel, x, y }
+  if x and not issecret(x) and not issecret(y) then db.badgePos = { point, rel, x, y } end
 end)
 
 -- The nameplate frame is taller than what it draws: stand on its health bar, or on the name when
