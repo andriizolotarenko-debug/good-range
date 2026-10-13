@@ -2,7 +2,7 @@
 --   mid  the middle of the bracket (what bracket-only addons show)
 --   A    trend: the closing rate from the last two boundary crossings, extrapolated
 --   B    where the game gives the player's position and the target stands still: the target's
---        spot, fixed at a crossing, and the distance to it. Otherwise A plus live speeds
+--        spot, fitted to the last few crossings, and the distance to it. Otherwise A plus live speeds
 --        (both stopped = freeze), a slowdown when an expected crossing does not come, and a
 --        restart into the bracket when you start moving with the estimate pressed on its edge
 -- Every crossing is an exact distance, so the error of each estimate is measured there.
@@ -18,6 +18,10 @@ Estimator.MAX_SCALE = 3   -- B never scales its rate by more than this
 Estimator.PIN = 0.15      -- yd; an estimate this close to a bracket edge counts as pressed on it
 Estimator.REACH = 1.5     -- yd; range checks measure edge to edge, positions centre to centre
 Estimator.SMOOTH = 0.15   -- s; smoothing of the player's velocity
+Estimator.SOFT = 2        -- yd; a guessed rate slows down this close to the bracket edge ahead
+Estimator.CREEP = 0.25    -- the slowest it gets there, as a part of the rate
+Estimator.FIXES = 6       -- crossings kept to place a standing target (see solve)
+Estimator.DAMP = 0.1      -- how firmly solve keeps the target point where it was
 
 local function clamp(v, lo, hi)
   if v < lo then return lo end
@@ -61,7 +65,7 @@ end
 function Estimator:update(now, dt, lo, hi, sp, px, py, still)
   sp = sp or 0
   self:track(dt, px, py)
-  if self.tx and (not px or not still) then self.tx, self.ty = nil, nil end
+  if self.tx and (not px or not still) then self.tx, self.ty, self.fixes = nil, nil, nil end
 
   if self.tx then
     -- Position mode: the target stands at (tx, ty); the range is the distance to it.
@@ -72,9 +76,9 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
       -- Starting from rest: if the estimate sits on an edge of the bracket, the only way it can
       -- change is back into the bracket, so start moving that way.
       if self.b <= lo + Estimator.PIN then
-        self.bRate, self.refSpeed = sp, sp
+        self.bRate, self.refSpeed, self.guessed = sp, sp, true
       elseif hi and self.b >= hi - Estimator.PIN then
-        self.bRate, self.refSpeed = -sp, sp
+        self.bRate, self.refSpeed, self.guessed = -sp, sp, true
       end
     end
     local rate = 0
@@ -82,6 +86,14 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
       rate = self.bRate
       if self.refSpeed and self.refSpeed > 0.5 then
         rate = rate * math.min(sp / self.refSpeed, Estimator.MAX_SCALE)
+      end
+      -- A guessed rate (straight at the target at full speed) is often too fast: rather than
+      -- run into the next edge and stop dead there until the game confirms the crossing, ease
+      -- in over the last SOFT yards.
+      local edge = rate > 0 and hi or rate < 0 and lo or nil
+      if self.guessed and edge then
+        local gap = math.abs(edge - self.b)
+        if gap < Estimator.SOFT then rate = rate * math.max(Estimator.CREEP, gap / Estimator.SOFT) end
       end
     end
     self.b = self.b + rate * dt
@@ -102,6 +114,8 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
   end
 
   if at then
+    -- it happened between the last check and this one: on average half a tick ago
+    local t = now - dt / 2
     crossing = { at = at, dir = dir, mid = mid(oldLo, oldHi) }
     if self.anchor then
       crossing.a = self:valueA(now, oldLo, oldHi)
@@ -113,27 +127,35 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still)
     end
 
     local last = self.last
-    local fresh = last and now - last.t < Estimator.WINDOW and now > last.t
+    local fresh = last and t - last.t < Estimator.WINDOW and t > last.t
     -- A: plain trend between the last two crossings (0 when the same boundary is crossed back).
-    self.aRate = fresh and (at - last.at) / (now - last.t) or 0
-    self.anchor, self.anchorT = at, now
+    self.aRate = fresh and (at - last.at) / (t - last.t) or 0
+    self.anchor, self.anchorT = at, t
     -- B: the measured rate when it agrees with this crossing's direction, otherwise assume
     -- we are moving straight along the line at the current combined speed.
-    local measured = fresh and (at - last.at) / (now - last.t)
+    local measured = fresh and (at - last.at) / (t - last.t)
     if measured and measured * dir > 0 then
       self.bRate = measured
       self.refSpeed = self.spT > 0 and self.spSum / self.spT or sp
+      self.guessed = false
     else
       self.bRate = dir * math.max(sp, 1)
       self.refSpeed = math.max(sp, 1)
+      self.guessed = true
     end
-    self.b = at
+    -- and it has moved on since: by half a tick at the rate it moves now
+    self.b = at + (sp > 0.05 and self.bRate * dt / 2 or 0)
     self.spSum, self.spT = 0, 0
-    self.last = { t = now, at = at }
+    self.last = { t = t, at = at }
 
     if px and still then
+      -- where you stood at the crossing, half a tick back
+      local cx, cy = px - (self.vx or 0) * dt / 2, py - (self.vy or 0) * dt / 2
+      self.fixes = self.fixes or {}
+      table.insert(self.fixes, { cx, cy, at + Estimator.REACH })
+      if #self.fixes > Estimator.FIXES then table.remove(self.fixes, 1) end
       if self.tx then
-        self:pin(px, py, at)
+        if #self.fixes > 1 then self:solve() else self:pin(px, py, at) end
       elseif self.vx then
         -- First fix: we cross the boundary moving straight along the line, so the target is
         -- ahead of us when we close in and behind us when we back off.
@@ -175,6 +197,49 @@ function Estimator:track(dt, px, py)
     self.vy = (self.vy or ivy) + (ivy - (self.vy or ivy)) * k
   end
   self.px, self.py = px, py
+end
+
+-- Places the target point to fit the kept crossings best: each says the target is on a circle
+-- (its range plus REACH) around where you stood. A few damped Gauss-Newton steps from the current
+-- point, so a straight run, which says nothing about left or right, keeps the point's side. A
+-- point on the line you ran along can't move off it that way, so the solve also starts from a
+-- point to each side of it and from its mirror image across that line, and keeps the best fit.
+local function fit(fixes, tx, ty)
+  local err
+  for step = 1, 6 do
+    local a, b, c, gx, gy = Estimator.DAMP, 0, Estimator.DAMP, 0, 0
+    err = 0
+    for _, f in ipairs(fixes) do
+      local dx, dy = tx - f[1], ty - f[2]
+      local len = math.sqrt(dx * dx + dy * dy)
+      if len > 1e-6 then
+        local ux, uy, r = dx / len, dy / len, len - f[3]
+        a, b, c = a + ux * ux, b + ux * uy, c + uy * uy
+        gx, gy = gx + ux * r, gy + uy * r
+        err = err + r * r
+      end
+    end
+    local det = a * c - b * b
+    if step == 6 or det < 1e-9 then break end
+    tx, ty = tx - (c * gx - b * gy) / det, ty - (a * gy - b * gx) / det
+  end
+  return tx, ty, err
+end
+
+function Estimator:solve()
+  local tx, ty = self.tx, self.ty
+  local bx, by, best = fit(self.fixes, tx, ty)
+  local v = self.vx and math.sqrt(self.vx ^ 2 + self.vy ^ 2) or 0
+  if v > 0.5 and self.px then
+    -- the same point mirrored across the line you run along, and a nudge to each side of it
+    local ux, uy = self.vx / v, self.vy / v
+    local side = (tx - self.px) * -uy + (ty - self.py) * ux
+    for _, off in ipairs({ -2 * side, 2, -2 }) do
+      local x, y, err = fit(self.fixes, tx - uy * off, ty + ux * off)
+      if err < best - 1e-6 then bx, by, best = x, y, err end
+    end
+  end
+  self.tx, self.ty = bx, by
 end
 
 -- Moves the target point along its bearing so that its range is exactly d.

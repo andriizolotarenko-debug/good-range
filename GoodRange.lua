@@ -5,7 +5,9 @@ local _, ns = ...
 
 local issecret = issecretvalue or function() return false end
 local API = ns.API
-local TICK = 0.05
+-- ~30 ticks a second: each checks only the two steps around the distance (see measure), so a
+-- crossing is timed to a tick; the display carries the estimate on between ticks.
+local TICK = 0.03
 local MELEE = ns.Zones.MELEE
 -- Some spells reach "anywhere" (50000 yd); as a range step they would put a far target in a
 -- 100-50000 yd bracket and show its middle. No attack or heal reaches past the longest item step.
@@ -171,18 +173,21 @@ local function scan(unit, hostile, restricted, from, to)
   return lo, hi, loI, hiI
 end
 
--- Checking every step is the expensive part, so between full scans only the steps around the
--- last bracket are checked. A full scan runs every FULL_EVERY s, on a new target, and whenever
--- the answer could lie outside that window.
-local FULL_EVERY = 0.5
-local nextFull, loIdx, hiIdx = 0, nil, nil
+-- Checking every step is the expensive part. Each tick only the two steps bounding the last
+-- bracket (its edges) are checked, so a crossing is timed to the frame. The steps around them are
+-- scanned as soon as an edge changes and every WINDOW_EVERY s; all steps every FULL_EVERY s, on a
+-- new target, and whenever the answer could lie outside that window. No scan comes sooner than
+-- SCAN_MIN s after the last one, so steps that give no answer can't make it scan every frame.
+local WINDOW_EVERY, FULL_EVERY, SCAN_MIN = 0.2, 0.5, 0.05
+local nextWindow, nextFull, lastScan, loIdx, hiIdx = 0, 0, -1, nil, nil
+local lastLo, lastHi = 0, nil
 
 function ns.ForgetBracket()
-  nextFull, loIdx, hiIdx = 0, nil, nil
+  nextWindow, nextFull, lastScan, loIdx, hiIdx = 0, 0, -1, nil, nil
 end
 
-local function measure(unit, hostile, now)
-  local restricted = InCombatLockdown() and not hostile
+-- the steps around the last bracket, or all of them
+local function rescan(unit, hostile, restricted, now)
   local n = #groups
   local lo, hi, loI, hiI
   if now < nextFull and (loIdx or hiIdx) then
@@ -199,6 +204,19 @@ local function measure(unit, hostile, now)
   loIdx, hiIdx = loI, hiI
   nextFull = now + FULL_EVERY
   return lo, hi
+end
+
+local function measure(unit, hostile, now)
+  local restricted = InCombatLockdown() and not hostile
+  if (loIdx or hiIdx) and now < nextWindow
+      and (not loIdx or check(groups[loIdx], unit, hostile, restricted) == false)
+      and (not hiIdx or check(groups[hiIdx], unit, hostile, restricted) == true) then
+    return lastLo, lastHi   -- both edges as they were
+  end
+  if now - lastScan < SCAN_MIN then return lastLo, lastHi end
+  lastScan, nextWindow = now, now + WINDOW_EVERY
+  lastLo, lastHi = rescan(unit, hostile, restricted, now)
+  return lastLo, lastHi
 end
 
 local function speedOf(unit)
@@ -348,6 +366,7 @@ end
 -- Tick: estimation at 20 Hz on a hidden driver frame -----------------------------------------
 
 local goal, goalLabel        -- what the tape slides towards (display units) and its label
+local goalRate, goalLo, goalHi, sinceTick = 0, 0, nil, 0   -- how goal moves on between ticks
 local noData = false         -- no range check answered (the game hides them, e.g. secret values)
 local shown                  -- what the tape shows now
 local acc, clock = 0, 0
@@ -377,7 +396,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   local sp = (speedOf("player") or 0) + (ts or 0)
   local px, py = playerPos()
   -- An unknown target speed counts as standing; the next crossing corrects a wrong guess.
-  est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
+  local was = goal
+  local crossed = est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
   local b = est:valueB(lo, hi)
 
   -- nothing said in or out: "0+" would look like a reading, so say there is no data
@@ -393,6 +413,10 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   end
   -- two digits at most, so the number never gets wider: 99 yd and beyond read "99+"
   if not noData and goal >= 99 then goalLabel = "99+" end
+  -- how fast the estimate moves now, so the display can carry it on until the next tick (not
+  -- across a crossing, where it jumps)
+  goalRate = b and was and b == goal and not crossed and (goal - was) / dt or 0
+  goalLo, goalHi, sinceTick = lo, hi, 0
 end)
 
 -- Drawing: every frame, the tape glides towards the latest estimate.
@@ -403,9 +427,15 @@ root:SetScript("OnUpdate", function(_, elapsed)
     if not db.unlocked then return end
     goal, goalLabel = 21.4, "21"   -- sample while unlocked
   end
-  if shown == goal then return end
-  shown = shown and shown + (goal - shown) * math.min(1, elapsed * 14) or goal
-  if math.abs(goal - shown) < 0.002 then shown = goal end
+  local aim = goal
+  if goalRate ~= 0 then
+    sinceTick = sinceTick + elapsed
+    aim = math.max(goalLo, goal + goalRate * math.min(sinceTick, 2 * TICK))
+    if goalHi and aim > goalHi then aim = goalHi end
+  end
+  if shown == aim then return end
+  shown = shown and shown + (aim - shown) * math.min(1, elapsed * 14) or aim
+  if math.abs(aim - shown) < 0.002 then shown = aim end
   tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
 end)
 
@@ -565,7 +595,7 @@ events:SetScript("OnEvent", function(_, event)
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
     est:reset()
-    goal, shown, noData = nil, nil, false
+    goal, shown, noData, goalRate = nil, nil, false, 0
     canHelpTarget = nil
     ns.ForgetBracket()
     if UnitExists("target") then
