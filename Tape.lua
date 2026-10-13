@@ -286,7 +286,7 @@ function Tape:Restyle(first, v)
     else
       local major, halfTick = i % 10 == 0, i % 5 == 0
       local c = colors[zoneAt(i / 10)]
-      tick:SetSize(major and 3 or 2, (major and 20 or halfTick and 12 or 6) * k)
+      tick:SetSize(2, (major and 20 or halfTick and 12 or 6) * k)
       tick:SetVertexColor(c[1], c[2], c[3], f * (major and 1 or halfTick and 0.9 or 0.75))
       tick:Show()
     end
