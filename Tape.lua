@@ -5,6 +5,7 @@
 --          to the sides
 --   label  the distance with a rounded MELEE / RANGED / DEAD ZONE / OUT OF RANGE badge on its left;
 --          the badge has its own size and can be dragged away from the number (GoodRange.lua)
+--   badge  the badge alone, no number
 --   number the coloured distance alone
 -- The tape and the number centre the whole-yard value on its digits; the label starts it right
 -- after the badge.
@@ -139,18 +140,21 @@ function Tape:SetZones(zoneAt)
   if self.value then self:Draw(self.value, self.label) end
 end
 
--- style: "tape", "label" or "number". badgeScale: the badge's height as a part of the digits'
+-- style: "tape", "label", "badge" or "number". badgeScale: the badge's height as a part of the digits'
 -- (1 when nil).
 function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
   self.width, self.height, self.fontSize, self.ppy = width, height, fontSize, ppy
-  self.showTape = style ~= "label" and style ~= "number"
-  self.showBadge = style == "label"
+  self.showTape = style ~= "label" and style ~= "number" and style ~= "badge"
+  self.showBadge = style == "label" or style == "badge"
+  self.showNumber = style ~= "badge"
   local k = height / BASE_H
   self.k = k
   self.base = math.floor(height - 12 * k + 0.5)   -- tick baseline, from the top of the tape area
   self.area:SetHeight(height)
   self.area:SetShown(self.showTape)
   self.badge:SetShown(self.showBadge)
+  self.number:SetShown(self.showNumber)
+  self.unit:SetShown(self.showNumber)
 
   font = font or FALLBACK_FONT
   setFont(self.number, font, fontSize, "OUTLINE")
@@ -195,6 +199,10 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
     self.number:SetJustifyH("CENTER")
     self.root:SetSize(width, height + digitH + 4)
     self.number:SetPoint("CENTER", self.area, "TOP", 0, 3 + digitH / 2 - m.R * fontSize)
+  elseif not self.showNumber then
+    -- badge: the display is the badge itself
+    self.root:SetSize(badgeW, badgeH)
+    self.badge:SetPoint("CENTER", self.root, "CENTER", 0, 0)
   elseif not self.showBadge then
     -- number: centred on its digits in a two-digit row, "yd" hanging off its right
     self.number:SetText("88")
@@ -276,8 +284,10 @@ function Tape:SetUnlocked(on)
   self.box:SetShown(on)
   self.hint:SetShown(on)
   self.root:EnableMouse(on)
-  self.badge:EnableMouse(on and self.showBadge or false)
-  self.hint:SetText(self.showBadge and "Drag the number or the badge. Closing Good Range settings locks them."
+  -- the label's badge drags on its own; the badge look is all badge, so it drags as a whole
+  self.badge:EnableMouse(on and self.showBadge and self.showNumber or false)
+  self.hint:SetText(self.showBadge and self.showNumber
+    and "Drag the number or the badge. Closing Good Range settings locks them."
     or "Drag to move. Closing Good Range settings locks it.")
 end
 
@@ -309,7 +319,7 @@ function Tape:SetNoData(on)
   self.noData = on
   self.root:SetAlpha(on and 0.5 or 1)
   self.ruler:SetShown(not on)
-  self.unit:SetShown(not on)
+  self.unit:SetShown(not on and self.showNumber)
   if on then
     local c = Tape.COLORS.far
     self.number:SetText(self.showBadge and "" or "no data")

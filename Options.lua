@@ -203,7 +203,7 @@ local function build()
 
   -- left: display, clickable previews two to a row: the sliding tape, the number with a zone
   -- badge and the number alone
-  local ly = y - 36
+  local ly = y - 42
   label(win, "Display", LX + 2, ly)
   ly = ly - 18
   local tiles = {}
@@ -216,7 +216,8 @@ local function build()
         if on then edge:SetColorTexture(1, 0.82, 0, 1) else edge:SetColorTexture(0.4, 0.4, 0.4, 0.8) end
       end
       tile.caption:SetTextColor(on and 1 or 0.7, on and 0.82 or 0.7, on and 0 or 0.7)
-      tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, mode == "label" and 18 or 22, 20, db.font, mode)
+      tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, (mode == "label" or mode == "badge") and 18 or 22, 20,
+        db.font, mode)
       tile.preview:Draw(21.4, "21")
       -- the label's badge hangs off the number's left: centre the pair, not the number
       local shift = mode == "label" and (tile.preview.badgeW + tile.preview.badgeGap) / 2 or 0
@@ -224,7 +225,7 @@ local function build()
       tile.preview.root:SetPoint("CENTER", tile, "CENTER", shift, 7)
     end
   end
-  local modes = { { "tape", "Tape" }, { "label", "Label" }, { "number", "Number" } }
+  local modes = { { "tape", "Tape" }, { "label", "Label + Number" }, { "badge", "Label" }, { "number", "Number" } }
   local tileW = (COL - 12) / 2
   for i, m in ipairs(modes) do
     local tile = CreateFrame("Button", nil, win)
@@ -258,7 +259,7 @@ local function build()
   controls[#controls + 1] = { Refresh = showMode }
 
   -- font: step through the list with arrows
-  ly = ly - 2 - 90 * math.ceil(#modes / 2)
+  ly = ly - 14 - 90 * math.ceil(#modes / 2)
   label(win, "Font", LX + 2, ly)
   local fontText = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   fontText:SetPoint("TOP", win, "TOPLEFT", LX + COL / 2, ly - 20)
@@ -281,7 +282,7 @@ local function build()
   end
   controls[#controls + 1] = { Refresh = function() fontText:SetText(fontName(db.font)) end }
 
-  ly = ly - 50
+  ly = ly - 62
   label(win, "Show", LX + 2, ly)
   ly = ly - 18
   local function shownWhen(text, key, x, yy)
@@ -296,7 +297,7 @@ local function build()
   ly = ly - 30
 
   -- right: sizes
-  local ry = y - 36
+  local ry = y - 42
   local function sized(text, key, min, max, step)
     controls[#controls + 1] = slider(win, text, ry, key, min, max, step, RX - 2, COL - 50)
     ry = ry - 44
@@ -308,7 +309,7 @@ local function build()
   sized("Label size", "badgeScale", 50, 200, 5)
 
   -- right: over the target's nameplate, nudged by two offsets
-  ry = ry - 4
+  ry = ry - 14
   label(win, "Nameplate attach", RX, ry)
   ry = ry - 18
   controls[#controls + 1] = checkbox(win, "Above the target's nameplate", RX - 2, ry,
@@ -320,7 +321,7 @@ local function build()
   sized("Offset Y", "plateY", -50, 150, 1)
 
   -- below both: share the CurseForge link, copied from a box or whispered to a friend
-  y = math.min(ly, ry) - 4
+  y = math.min(ly, ry) - 18
   label(win, "Share with a friend", LX + 2, y)
   y = y - 20
   local link = CreateFrame("EditBox", nil, win, "InputBoxTemplate")
