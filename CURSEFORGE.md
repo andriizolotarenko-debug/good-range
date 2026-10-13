@@ -85,10 +85,18 @@ The ranges come from the game for the spell ranks you know, so range talents cou
 
 #### Four looks
 
-- **Tape:** a sliding ruler under a gold needle, like a digital compass.
-- **Label + Number:** the number with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge next to it. The badge has its own size and can be dragged anywhere on its own.
-- **Label:** just the coloured badge, no number.
-- **Number:** just the coloured distance.
+Pick the one that fits your UI. Every look is coloured by your zone and has its own size.
+
+- **Tape:** a ruler slides under a gold needle, like a digital compass, with the distance above it. You see the next zone coming before you reach it.
+- **Label + Number:** the distance with a rounded MELEE / RANGED / CHARGE / DEAD ZONE badge next to it. The badge can be dragged anywhere on its own.
+- **Label:** just the coloured badge. You see what you can do from here, without a number.
+- **Number:** just the coloured distance, like **23 yd**.
+
+#### On your target's nameplate
+
+Turn on **Nameplate attach** and the display sits right above your target's nameplate and moves with it, so you never look away from the fight. It works with all four looks. Two offsets nudge it into place, and it stands on the health bar or the name, whichever is on top. With Plater it uses Plater's bar.
+
+No nameplate (nameplates off, or the target too far or off screen)? The display goes back to its spot on the screen until the nameplate shows up again.
 
 #### Settings
 
@@ -98,7 +106,7 @@ Click the minimap button or type `/goodrange` (`/gr`). The settings window is sm
 - Width, height, font size, ruler scale and label size
 - Font: Changa Bold (included) or one of the game's fonts
 - Show in combat, out of combat, on enemies, on friendly players
-- Nameplate attach: the display moves with your target over its nameplate, in any of the four looks, with its own offset; without a nameplate it stays where you put it
+- Nameplate attach with X / Y offsets
 - Reset Defaults puts position, sizes and font back; Share with a friend copies or whispers the link
 - While the window is open the display shows a sample distance and can be dragged anywhere; closing the window locks it again
 
