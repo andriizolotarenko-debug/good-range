@@ -4,7 +4,7 @@
 -- Options > AddOns > Good Range only opens this window.
 local _, ns = ...
 
-local W = 340
+local W = 640
 local win
 
 local function label(parent, text, x, y, font)
@@ -91,6 +91,47 @@ local function fontName(path)
   return "Custom"
 end
 
+local SHARE_URL = "https://www.curseforge.com/wow/addons/good-range-target-distance-range-finder"
+local SHARE_TEXT = "Good Range shows the exact distance to your target in yards: " .. SHARE_URL
+
+-- the target's name when it is a friendly player, to whisper the link to
+local function friendlyTarget()
+  local ok, name = pcall(function()
+    if UnitIsPlayer("target") and not UnitCanAttack("player", "target") then return GetUnitName("target", true) end
+  end)
+  if ok and type(name) == "string" and not (issecretvalue and issecretvalue(name)) then return name end
+end
+
+-- Whisper: ask for a name (the friendly target's to start with), then open the chat box with the
+-- whisper written out; the player sends it with Enter.
+local function whisperLink(name)
+  name = name and strtrim(name) or ""
+  local open = ChatFrame_OpenChat or (ChatFrameUtil and ChatFrameUtil.OpenChat)
+  if name ~= "" and open then open("/w " .. name .. " " .. SHARE_TEXT) end
+end
+
+local function popupEditBox(dialog)
+  return dialog.GetEditBox and dialog:GetEditBox() or dialog.editBox
+end
+
+StaticPopupDialogs.GOODRANGE_WHISPER = {
+  text = "Whisper the Good Range link to:",
+  button1 = ACCEPT or "Accept", button2 = CANCEL or "Cancel",
+  hasEditBox = true,
+  OnShow = function(self, name)
+    local eb = popupEditBox(self)
+    eb:SetText(name or "")
+    eb:SetFocus()
+  end,
+  OnAccept = function(self) whisperLink(popupEditBox(self):GetText()) end,
+  EditBoxOnEnterPressed = function(eb)
+    whisperLink(eb:GetText())
+    eb:GetParent():Hide()
+  end,
+  EditBoxOnEscapePressed = function(eb) eb:GetParent():Hide() end,
+  timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
 local function build()
   local db = ns.db
   local template
@@ -137,22 +178,34 @@ local function build()
   table.insert(UISpecialFrames, "GoodRangeOptions")   -- Esc closes it
 
   local controls = {}
+  local function refresh()
+    for _, c in ipairs(controls) do c:Refresh() end
+  end
   local y = -34
+  -- two columns: the look on the left, sizes and the nameplate on the right; sharing below both
+  local COL = (W - 36) / 2
+  local LX, RX = 14, 14 + COL + 8
 
   controls[#controls + 1] = checkbox(win, "Minimap button", 12, y,
     function() return not (db.minimap and db.minimap.hide) end,
     function(v) ns.ShowMinimapButton(v) end)
+  StaticPopupDialogs.GOODRANGE_RESET = {
+    text = "Reset Good Range's position, sizes and font to the defaults?",
+    button1 = YES or "Yes", button2 = NO or "No",
+    OnAccept = function() ns.ResetDefaults(); refresh() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+  }
   local reset = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-  reset:SetSize(110, 22)
+  reset:SetSize(120, 22)
   reset:SetPoint("TOPRIGHT", -14, y - 1)
-  reset:SetText("Reset position")
-  reset:SetScript("OnClick", function() ns.ResetPosition() end)
+  reset:SetText("Reset Defaults")
+  reset:SetScript("OnClick", function() StaticPopup_Show("GOODRANGE_RESET") end)
 
-  -- display: clickable previews, two to a row: the sliding tape, the number with a zone badge and
-  -- the number alone
-  y = y - 36
-  label(win, "Display", 16, y)
-  y = y - 18
+  -- left: display, clickable previews two to a row: the sliding tape, the number with a zone
+  -- badge and the number alone
+  local ly = y - 36
+  label(win, "Display", LX + 2, ly)
+  ly = ly - 18
   local tiles = {}
   local sample = { { 8, 35, "primary", "RANGED" }, { 0, 5, "secondary", "MELEE" } }   -- a hunter
   local function sampleZone(d) return ns.Zones.at(d, sample) end
@@ -172,10 +225,11 @@ local function build()
     end
   end
   local modes = { { "tape", "Tape" }, { "label", "Label" }, { "number", "Number" } }
+  local tileW = (COL - 12) / 2
   for i, m in ipairs(modes) do
     local tile = CreateFrame("Button", nil, win)
-    tile:SetSize((W - 40) / 2, 78)
-    tile:SetPoint("TOPLEFT", 14 + (i - 1) % 2 * ((W - 40) / 2 + 12), y - math.floor((i - 1) / 2) * 90)
+    tile:SetSize(tileW, 78)
+    tile:SetPoint("TOPLEFT", LX + (i - 1) % 2 * (tileW + 12), ly - math.floor((i - 1) / 2) * 90)
     local bg = tile:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.02, 0.02, 0.03, 0.6)
@@ -203,22 +257,11 @@ local function build()
   end
   controls[#controls + 1] = { Refresh = showMode }
 
-  y = y - 2 - 90 * math.ceil(#modes / 2)
-  controls[#controls + 1] = slider(win, "Width", y, "width", 100, 1000, 10)
-  y = y - 44
-  controls[#controls + 1] = slider(win, "Height", y, "height", 20, 160, 1)
-  y = y - 44
-  controls[#controls + 1] = slider(win, "Font size", y, "fontSize", 20, 96, 1)
-  y = y - 44
-  controls[#controls + 1] = slider(win, "Ruler Scale", y, "ppy", 10, 40, 1)
-  y = y - 44
-  controls[#controls + 1] = slider(win, "Badge size (label look, %)", y, "badgeScale", 50, 200, 5)
-
   -- font: step through the list with arrows
-  y = y - 48
-  label(win, "Font", 16, y)
+  ly = ly - 2 - 90 * math.ceil(#modes / 2)
+  label(win, "Font", LX + 2, ly)
   local fontText = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  fontText:SetPoint("TOP", win, "TOP", 0, y - 20)
+  fontText:SetPoint("TOP", win, "TOPLEFT", LX + COL / 2, ly - 20)
   local function stepFont(dir)
     local list, at = ns.Tape.FONTS, 1
     for i, f in ipairs(list) do
@@ -229,39 +272,89 @@ local function build()
     ns.ApplyLayout()
     showMode()
   end
-  for _, side in ipairs({ { "<", -1, "LEFT", 14 }, { ">", 1, "RIGHT", -14 } }) do
+  for _, side in ipairs({ { "<", -1, LX }, { ">", 1, LX + COL - 28 } }) do
     local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
     b:SetSize(28, 22)
-    b:SetPoint("TOP" .. side[3], win, "TOP" .. side[3], side[4], y - 16)
+    b:SetPoint("TOPLEFT", side[3], ly - 16)
     b:SetText(side[1])
     b:SetScript("OnClick", function() stepFont(side[2]) end)
   end
   controls[#controls + 1] = { Refresh = function() fontText:SetText(fontName(db.font)) end }
 
-  y = y - 50
-  label(win, "Show", 16, y, "GameFontNormalSmall")
-  y = y - 16
+  ly = ly - 50
+  label(win, "Show", LX + 2, ly)
+  ly = ly - 18
   local function shownWhen(text, key, x, yy)
     controls[#controls + 1] = checkbox(win, text, x, yy,
       function() return db[key] end, function(v) db[key] = v; ns.RefreshShown() end)
   end
-  shownWhen("In combat", "inCombat", 12, y)
-  shownWhen("Out of combat", "outOfCombat", W / 2, y)
-  y = y - 26
-  shownWhen("Enemy target", "enemy", 12, y)
-  shownWhen("Friendly target", "friendly", W / 2, y)
+  shownWhen("In combat", "inCombat", LX - 2, ly)
+  shownWhen("Out of combat", "outOfCombat", LX + COL / 2, ly)
+  ly = ly - 26
+  shownWhen("Enemy target", "enemy", LX - 2, ly)
+  shownWhen("Friendly target", "friendly", LX + COL / 2, ly)
+  ly = ly - 30
 
-  -- over the target's nameplate, nudged by two offsets side by side
-  y = y - 30
-  controls[#controls + 1] = checkbox(win, "Above the target's nameplate", 12, y,
+  -- right: sizes
+  local ry = y - 36
+  local function sized(text, key, min, max, step)
+    controls[#controls + 1] = slider(win, text, ry, key, min, max, step, RX - 2, COL - 50)
+    ry = ry - 44
+  end
+  sized("Width", "width", 100, 1000, 10)
+  sized("Height", "height", 20, 160, 1)
+  sized("Font size", "fontSize", 20, 96, 1)
+  sized("Ruler Scale", "ppy", 10, 40, 1)
+  sized("Label size", "badgeScale", 50, 200, 5)
+
+  -- right: over the target's nameplate, nudged by two offsets
+  ry = ry - 4
+  label(win, "Nameplate attach", RX, ry)
+  ry = ry - 18
+  controls[#controls + 1] = checkbox(win, "Above the target's nameplate", RX - 2, ry,
     function() return db.nameplate end, function(v) db.nameplate = v; ns.ApplyLayout() end,
     "The display hangs over your target's nameplate and moves with it. When the target has no "
       .. "nameplate (nameplates off, or the target too far or off screen) it stays where you put it.")
-  y = y - 30
-  local half = (W - 24) / 2
-  controls[#controls + 1] = slider(win, "Nameplate offset X", y, "plateX", -150, 150, 1, 12, half - 46)
-  controls[#controls + 1] = slider(win, "Nameplate offset Y", y, "plateY", -50, 150, 1, 12 + half, half - 46)
-  win:SetHeight(-y + 52)
+  ry = ry - 30
+  sized("Offset X", "plateX", -150, 150, 1)
+  sized("Offset Y", "plateY", -50, 150, 1)
+
+  -- below both: share the CurseForge link, copied from a box or whispered to a friend
+  y = math.min(ly, ry) - 4
+  label(win, "Share with a friend", LX + 2, y)
+  y = y - 20
+  local link = CreateFrame("EditBox", nil, win, "InputBoxTemplate")
+  link:SetSize(W - 2 * LX - 2 * (90 + 8) - 6, 22)
+  link:SetPoint("TOPLEFT", LX + 6, y)
+  link:SetAutoFocus(false)
+  link:SetText(SHARE_URL)
+  link:SetCursorPosition(0)
+  -- read only: any typing puts the link back
+  link:SetScript("OnTextChanged", function(self, user)
+    if user then self:SetText(SHARE_URL); self:HighlightText() end
+  end)
+  link:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+  link:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  link:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  local hint = win:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  hint:SetPoint("TOPLEFT", link, "BOTTOMLEFT", -4, -3)
+  local copy = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+  copy:SetSize(90, 22)
+  copy:SetPoint("LEFT", link, "RIGHT", 8, 0)
+  copy:SetText("Copy")
+  copy:SetScript("OnClick", function()
+    link:SetFocus()
+    link:HighlightText()
+    -- the game can't write to the clipboard: select the link for the player's own copy keys
+    hint:SetText(((IsMacClient and IsMacClient()) and "Cmd" or "Ctrl") .. "+C copies the link")
+  end)
+  local whisper = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+  whisper:SetSize(90, 22)
+  whisper:SetPoint("LEFT", copy, "RIGHT", 8, 0)
+  whisper:SetText("Whisper")
+  whisper:SetScript("OnClick", function() StaticPopup_Show("GOODRANGE_WHISPER", nil, nil, friendlyTarget()) end)
+  y = y - 22 - 18
+  win:SetHeight(-y + 12)
 
   -- the display is unlocked exactly while this window is open
   win:SetScript("OnShow", function()

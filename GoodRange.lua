@@ -554,9 +554,11 @@ SlashCmdList.GOODRANGE = function(msg)
   end
 end
 
-function ns.ResetPosition()
+-- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes and font
+local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "plateX", "plateY" }
+function ns.ResetDefaults()
   db.pos, db.badgePos = nil, nil
-  db.plateX, db.plateY = ns.DEFAULTS.plateX, ns.DEFAULTS.plateY
+  for _, k in ipairs(RESET) do db[k] = ns.DEFAULTS[k] end
   ns.ApplyLayout()
 end
 

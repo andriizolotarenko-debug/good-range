@@ -94,10 +94,11 @@ The ranges come from the game for the spell ranks you know, so range talents cou
 Click the minimap button or type `/goodrange` (`/gr`). The settings window is small and movable, so you see the result while you tune it.
 
 - Tape, label or number, with live previews
-- Width, height, font size, ruler scale and badge size
+- Width, height, font size, ruler scale and label size
 - Font: Changa Bold (included) or one of the game's fonts
 - Show in combat, out of combat, on enemies, on friendly players
-- Above the target's nameplate: the display moves with your target, in any of the three looks, with its own offset; without a nameplate it stays where you put it
+- Nameplate attach: the display moves with your target over its nameplate, in any of the three looks, with its own offset; without a nameplate it stays where you put it
+- Reset Defaults puts position, sizes and font back; Share with a friend copies or whispers the link
 - While the window is open the display shows a sample distance and can be dragged anywhere; closing the window locks it again
 
 #### Works on
