@@ -296,6 +296,20 @@ local function build()
   shownWhen("Friendly target", "friendly", LX + COL / 2, ly)
   ly = ly - 30
 
+  -- left: the focus label, off by default; one look, its own size and place
+  if ns.HAS_FOCUS then
+    ly = ly - 14
+    label(win, "Focus target", LX + 2, ly)
+    ly = ly - 18
+    controls[#controls + 1] = checkbox(win, "Range to your focus", LX - 2, ly,
+      function() return db.focus end, function(v) db.focus = v; ns.ApplyLayout() end,
+      "A small label with the distance to your focus, coloured by your zones like the main display. "
+        .. "Drag it anywhere while this window is open.")
+    ly = ly - 30
+    controls[#controls + 1] = slider(win, "Scale", ly, "focusScale", 50, 200, 5, LX - 2, COL - 50)
+    ly = ly - 44
+  end
+
   -- right: sizes
   local ry = y - 42
   local function sized(text, key, min, max, step)

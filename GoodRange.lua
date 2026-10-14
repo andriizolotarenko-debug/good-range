@@ -35,10 +35,12 @@ ns.DEFAULTS = {
   font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
   unlocked = false, nameplate = false, plateX = 0, plateY = 2,
+  focus = false, focusScale = 100,
 }
+-- The focus came with TBC; a client without it gets no focus option.
+ns.HAS_FOCUS = FocusFrame ~= nil or interface >= 20000
 
 local db
-local est = ns.Estimator.new()
 local groups = {}        -- ascending by range: { range, harmItem, friendItem, interact, spells }
 local spellbook = { known = {}, generic = { harm = {}, help = {} } }   -- filled by build()
 local spans, spanKey = {}, ""   -- the zones for the current target (see Zones.build)
@@ -124,7 +126,7 @@ local function rebuildSoon()
   C_Timer.After(1, function() rebuildPending = false; build() end)
 end
 
--- true / false / nil (unknown) for one range step.
+-- true / false / nil (unknown) for one range step, and what gave the answer (for /gr list).
 local function check(g, unit, hostile, restricted)
   local item = hostile and g.harmItem or g.friendItem
   if item and not restricted then
@@ -133,15 +135,13 @@ local function check(g, unit, hostile, restricted)
       secrets.item = secrets.item + 1
     else
       local inRange = v == true or v == 1
-      g.last = inRange and "item" or "item-"
-      return inRange
+      return inRange, inRange and "item" or "item-"
     end
   end
   if g.interact and not restricted then
     local v = CheckInteractDistance(unit, g.interact)
     if not issecret(v) then
-      g.last = v and "interact" or "interact-"
-      return v and true or false
+      return v and true or false, v and "interact" or "interact-"
     end
   end
   for _, id in ipairs(g.spells) do
@@ -149,27 +149,34 @@ local function check(g, unit, hostile, restricted)
     if issecret(v) then
       secrets.spell = secrets.spell + 1
     elseif v ~= nil then
-      g.last = (v and "spell " or "spell- ") .. id
-      return v
+      return v, (v and "spell " or "spell- ") .. id
     end
   end
-  g.last = nil
   return nil
 end
 
+-- A tracker follows one unit (the target, the focus): its last bracket, when its steps were last
+-- scanned, and its distance estimate.
+local function newTracker(unit)
+  return { unit = unit, est = Estimator.new(), res = {}, lastLo = 0 }
+end
+local T, F = newTracker("target"), newTracker("focus")
+
 -- lo: the largest step reported out (below hi), hi: the smallest step reported in.
-local function scan(unit, hostile, restricted, from, to)
+local function scan(tr, hostile, restricted, from, to)
   local hi, hiI
+  local res = tr.res
   for i = from, to do
     local g = groups[i]
-    local r = check(g, unit, hostile, restricted)
-    g.result = r
+    local r, why = check(g, tr.unit, hostile, restricted)
+    res[i] = r
+    if tr == T then g.result, g.last = r, why end   -- what /gr list shows
     if r == true and not hi then hi, hiI = g.range, i end
   end
   local lo, loI = 0, nil
   for i = from, to do
     local g = groups[i]
-    if g.result == false and (not hi or g.range < hi) and g.range > lo then lo, loI = g.range, i end
+    if res[i] == false and (not hi or g.range < hi) and g.range > lo then lo, loI = g.range, i end
   end
   return lo, hi, loI, hiI
 end
@@ -180,44 +187,47 @@ end
 -- new target, and whenever the answer could lie outside that window. No scan comes sooner than
 -- SCAN_MIN s after the last one, so steps that give no answer can't make it scan every frame.
 local WINDOW_EVERY, FULL_EVERY, SCAN_MIN = 0.2, 0.5, 0.05
-local nextWindow, nextFull, lastScan, loIdx, hiIdx = 0, 0, -1, nil, nil
-local lastLo, lastHi = 0, nil
 
-function ns.ForgetBracket()
-  nextWindow, nextFull, lastScan, loIdx, hiIdx = 0, 0, -1, nil, nil
+-- tr: the tracker to forget, or nil for both (the steps changed)
+function ns.ForgetBracket(tr)
+  for _, t in ipairs(tr and { tr } or { T, F }) do
+    t.nextWindow, t.nextFull, t.lastScan, t.loIdx, t.hiIdx = 0, 0, -1, nil, nil
+  end
 end
+ns.ForgetBracket()
 
 -- the steps around the last bracket, or all of them
-local function rescan(unit, hostile, restricted, now)
+local function rescan(tr, hostile, restricted, now)
   local n = #groups
   local lo, hi, loI, hiI
-  if now < nextFull and (loIdx or hiIdx) then
-    local from = math.max(1, (loIdx or 1) - 1)
-    local to = math.min(n, (hiIdx or n) + 1)
-    lo, hi, loI, hiI = scan(unit, hostile, restricted, from, to)
+  if now < tr.nextFull and (tr.loIdx or tr.hiIdx) then
+    local from = math.max(1, (tr.loIdx or 1) - 1)
+    local to = math.min(n, (tr.hiIdx or n) + 1)
+    lo, hi, loI, hiI = scan(tr, hostile, restricted, from, to)
     local outside = (not hi and to < n) or (hiI == from and from > 1) or (not loI and from > 1)
     if not outside then
-      loIdx, hiIdx = loI, hiI
+      tr.loIdx, tr.hiIdx = loI, hiI
       return lo, hi
     end
   end
-  lo, hi, loI, hiI = scan(unit, hostile, restricted, 1, n)
-  loIdx, hiIdx = loI, hiI
-  nextFull = now + FULL_EVERY
+  lo, hi, loI, hiI = scan(tr, hostile, restricted, 1, n)
+  tr.loIdx, tr.hiIdx = loI, hiI
+  tr.nextFull = now + FULL_EVERY
   return lo, hi
 end
 
-local function measure(unit, hostile, now)
+local function measure(tr, hostile, now)
   local restricted = InCombatLockdown() and not hostile
-  if (loIdx or hiIdx) and now < nextWindow
-      and (not loIdx or check(groups[loIdx], unit, hostile, restricted) == false)
-      and (not hiIdx or check(groups[hiIdx], unit, hostile, restricted) == true) then
-    return lastLo, lastHi   -- both edges as they were
+  local loIdx, hiIdx = tr.loIdx, tr.hiIdx
+  if (loIdx or hiIdx) and now < tr.nextWindow
+      and (not loIdx or check(groups[loIdx], tr.unit, hostile, restricted) == false)
+      and (not hiIdx or check(groups[hiIdx], tr.unit, hostile, restricted) == true) then
+    return tr.lastLo, tr.lastHi   -- both edges as they were
   end
-  if now - lastScan < SCAN_MIN then return lastLo, lastHi end
-  lastScan, nextWindow = now, now + WINDOW_EVERY
-  lastLo, lastHi = rescan(unit, hostile, restricted, now)
-  return lastLo, lastHi
+  if now - tr.lastScan < SCAN_MIN then return tr.lastLo, tr.lastHi end
+  tr.lastScan, tr.nextWindow = now, now + WINDOW_EVERY
+  tr.lastLo, tr.lastHi = rescan(tr, hostile, restricted, now)
+  return tr.lastLo, tr.lastHi
 end
 
 local function speedOf(unit)
@@ -244,17 +254,23 @@ local hostileTarget = true
 local _, playerClass = UnitClass("player")
 local RETAIL = interface >= 100000
 
--- Rebuilds the zones from what you can use right now (form, rage / mana, cooldowns, weapon,
--- combat); true if they changed.
-local function refreshZones()
+-- The zones from what you can use right now (form, rage / mana, cooldowns, weapon, combat)
+-- against an enemy or a friend.
+local function zonesFor(hostile)
   local ctx = {
-    class = playerClass, hostile = hostileTarget, known = spellbook.known, generic = spellbook.generic,
+    class = playerClass, hostile = hostile, known = spellbook.known, generic = spellbook.generic,
     getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
     form = playerClass == "DRUID" and API.Form() or nil,
     mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
     primaryRole = RETAIL and API.SpecRole() or nil,
   }
   local new, diag = ns.Zones.build(ctx)
+  return new, diag, ctx
+end
+
+-- Rebuilds the target's zones; true if they changed.
+local function refreshZones()
+  local new, diag, ctx = zonesFor(hostileTarget)
   ns.diag = { class = playerClass, form = ctx.form, mainTree = ctx.mainTree, spells = diag }
   local parts = {}
   for _, sp in ipairs(new) do parts[#parts + 1] = table.concat(sp, ",") end
@@ -279,10 +295,12 @@ root:RegisterForDrag("LeftButton")
 local plate   -- the target's nameplate the display hangs over, if any (see place)
 -- After hanging on a nameplate, the game can hand the frame back no longer movable (Retail 12.x):
 -- make it movable again before each drag, and never let a refusal raise an error.
-local function startMoving(self)
-  if plate then return end
+local function drag(self)
   if not self:IsMovable() then pcall(self.SetMovable, self, true) end
   pcall(self.StartMoving, self)
+end
+local function startMoving(self)
+  if not plate then drag(self) end
 end
 root:SetScript("OnDragStart", startMoving)
 root:SetScript("OnDragStop", function(self)
@@ -350,6 +368,30 @@ local function place()
   if plate then tape.hint:SetText("Over the target's nameplate: move it with the nameplate offset sliders.") end
 end
 
+-- The focus label: one look whatever the display, dragged on its own while the settings are open.
+local focusLabel = ns.Tape.Focus.New(UIParent, "GoodRangeFocus")
+local focusRoot = focusLabel.root
+focusRoot:SetMovable(true)
+focusRoot:SetClampedToScreen(true)
+focusRoot:RegisterForDrag("LeftButton")
+focusRoot:SetScript("OnDragStart", drag)
+focusRoot:SetScript("OnDragStop", function(self)
+  self:StopMovingOrSizing()
+  local point, _, rel, x, y = self:GetPoint()
+  if x and not issecret(x) and not issecret(y) then db.focusPos = { point, rel, x, y } end
+end)
+focusRoot:Hide()
+
+local function placeFocus()
+  focusRoot:ClearAllPoints()
+  if db.focusPos then
+    focusRoot:SetPoint(db.focusPos[1], UIParent, db.focusPos[2], db.focusPos[3], db.focusPos[4])
+  else
+    focusRoot:SetPoint("CENTER", UIParent, "CENTER", 0, 66)   -- just under the display
+  end
+  focusLabel:SetUnlocked(db.unlocked)
+end
+
 -- nameplates come and go as the target walks in and out of view: place again once they settle
 local placePending
 local function placeSoon()
@@ -367,7 +409,9 @@ end
 function ns.ApplyLayout()
   if not db then return end
   tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100)
+  focusLabel:SetLayout(db.focusScale / 100, ns.DEFAULTS.font)
   place()
+  placeFocus()
   ns.RefreshShown()
 end
 
@@ -380,6 +424,43 @@ local shown                  -- what the tape shows now
 local acc, clock = 0, 0
 local ZONE_EVERY = 0.25    -- s between checks of what you can use (rage, form, cooldowns ...)
 local zoneClock = 0
+local targetOn, focusOn = false, false   -- which units are tracked (see RefreshShown)
+local focusSpans, focusHostile, focusZoneClock = {}, nil, 0
+
+-- One tick of a tracker: its bracket, then its estimate. ps: your speed, px / py: your position.
+local function follow(tr, hostile, dt, ps, px, py)
+  local lo, hi = measure(tr, hostile, clock)
+  local ts = speedOf(tr.unit)
+  -- combined speed; nil (unknown) unless both are known, or you move and the unit's is hidden
+  -- (counted as standing then, as before). Standing with the unit's hidden is unknown: the
+  -- estimate then moves only once a crossing shows the unit does.
+  local sp = ps and ts and ps + ts or ps and ps > 0.05 and ps or nil
+  -- An unknown unit speed counts as standing; the next crossing corrects a wrong guess.
+  local crossed = tr.est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
+  return lo, hi, tr.est:valueB(lo, hi), crossed
+end
+
+-- The focus: its own zones (it can be a friend while the target is an enemy) and the label.
+local function followFocus(dt, ps, px, py)
+  if not UnitExists("focus") or UnitIsDeadOrGhost("focus") then return end
+  local hostile = UnitCanAttack("player", "focus")
+  if issecret(hostile) then hostile = true end
+  focusZoneClock = focusZoneClock + dt
+  if hostile ~= focusHostile or focusZoneClock >= ZONE_EVERY then
+    focusHostile, focusZoneClock = hostile, 0
+    focusSpans = zonesFor(hostile)
+  end
+  local lo, hi, b = follow(F, hostile, dt, ps, px, py)
+  if not hi and lo == 0 then
+    focusLabel:SetNoData()
+    return
+  end
+  local d = b or lo
+  -- whole yards, "+" past the last step that answered, never wider than "99+"
+  local text = d >= 99 and "99+" or b and tostring(math.floor(b)) or math.floor(lo) .. "+"
+  focusLabel:Set(text, (ns.Zones.at(d, focusSpans)))
+end
+
 local driver = CreateFrame("Frame")
 driver:Hide()
 driver:SetScript("OnUpdate", function(_, elapsed)
@@ -388,8 +469,17 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   local dt = acc
   acc = 0
   clock = clock + dt
+  local ps = speedOf("player")
+  if ps == nil and IsPlayerMoving then
+    -- the game hides speeds in dungeons: moving or not is enough to start and stop the estimate
+    local m = IsPlayerMoving()
+    if not issecret(m) then ps = m and Estimator.RUN or 0 end
+  end
+  local px, py = playerPos()
+  if focusOn then followFocus(dt, ps, px, py) end
+
   local unit = "target"
-  if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
+  if not targetOn or not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
   local hostile = UnitCanAttack("player", unit)
   if issecret(hostile) then hostile = true end
   zoneClock = zoneClock + dt
@@ -399,23 +489,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if refreshZones() then tape:SetZones(zoneAt) end
   end
 
-  local lo, hi = measure(unit, hostile, clock)
-  local ts = speedOf(unit)
-  local ps = speedOf("player")
-  if ps == nil and IsPlayerMoving then
-    -- the game hides speeds in dungeons: moving or not is enough to start and stop the estimate
-    local m = IsPlayerMoving()
-    if not issecret(m) then ps = m and Estimator.RUN or 0 end
-  end
-  -- combined speed; nil (unknown) unless both are known, or you move and the target's is hidden
-  -- (counted as standing then, as before). Standing with the target's hidden is unknown: the
-  -- estimate then moves only once a crossing shows the target does.
-  local sp = ps and ts and ps + ts or ps and ps > 0.05 and ps or nil
-  local px, py = playerPos()
-  -- An unknown target speed counts as standing; the next crossing corrects a wrong guess.
   local was = goal
-  local crossed = est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
-  local b = est:valueB(lo, hi)
+  local lo, hi, b, crossed = follow(T, hostile, dt, ps, px, py)
 
   -- nothing said in or out: "0+" would look like a reading, so say there is no data
   noData = not hi and lo == 0
@@ -457,46 +532,54 @@ root:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 -- Can one of your heals or buffs go on this unit? (A spell that can't target it, like Mend Pet
--- on a player, gives no range answer at all.) Checked once per target.
-local canHelpTarget
+-- on a player, gives no range answer at all.) Checked once per target / focus.
+local helpable = {}
 local function canHelp(unit)
-  if canHelpTarget == nil then
-    canHelpTarget = false
+  if helpable[unit] == nil then
+    helpable[unit] = false
     for _, id in ipairs(spellbook.helpIds or {}) do
       local v = API.IsSpellInRange(id, unit)
       if not issecret(v) and v ~= nil then
-        canHelpTarget = true
+        helpable[unit] = true
         break
       end
     end
   end
-  return canHelpTarget
+  return helpable[unit]
 end
 
--- Shown for a living target, if the options allow it in this state (combat, target kind).
--- Never for friendly NPCs; for friendly players only if you can heal or buff them.
-function ns.RefreshShown()
-  local has = UnitExists("target") and not UnitIsDeadOrGhost("target")
+-- Followed if living and the options allow it in this state (combat, unit kind).
+-- Never friendly NPCs; friendly players only if you can heal or buff them.
+local function wanted(unit)
+  local has = UnitExists(unit) and not UnitIsDeadOrGhost(unit)
   if has and db then
     local fighting = UnitAffectingCombat("player")
-    local hostile = UnitCanAttack("player", "target")
+    local hostile = UnitCanAttack("player", unit)
     if issecret(hostile) then hostile = true end
-    local player = UnitIsPlayer("target")
+    local player = UnitIsPlayer(unit)
     if issecret(player) then player = true end
     if fighting and not db.inCombat or not fighting and not db.outOfCombat
         or hostile and not db.enemy or not hostile and not db.friendly
-        or not hostile and (not player or not canHelp("target")) then
+        or not hostile and (not player or not canHelp(unit)) then
       has = false
     end
   end
-  driver:SetShown(has)
-  root:SetShown(has or (db and db.unlocked))
+  return has
+end
+
+function ns.RefreshShown()
+  targetOn = wanted("target")
+  focusOn = ns.HAS_FOCUS and db and db.focus and wanted("focus") or false
+  driver:SetShown(targetOn or focusOn)
+  root:SetShown(targetOn or (db and db.unlocked))
+  -- while the settings are open the label shows (a sample without a focus) so it can be moved
+  focusRoot:SetShown(focusOn or (ns.HAS_FOCUS and db and db.focus and db.unlocked) or false)
 end
 
 -- Commands ----------------------------------------------------------------------------------
 
 local function printStats()
-  local s = est.stats
+  local s = T.est.stats
   if s.n == 0 then
     say("no measured crossings yet. Run at a target until its bracket changes twice.")
     return
@@ -543,7 +626,7 @@ SlashCmdList.GOODRANGE = function(msg)
   if msg == "stats" then
     printStats()
   elseif msg == "reset" then
-    est:resetStats()
+    T.est:resetStats()
     say("stats cleared")
   elseif msg == "list" then
     printList()
@@ -555,9 +638,9 @@ SlashCmdList.GOODRANGE = function(msg)
 end
 
 -- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes and font
-local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "plateX", "plateY" }
+local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "plateX", "plateY", "focusScale" }
 function ns.ResetDefaults()
-  db.pos, db.badgePos = nil, nil
+  db.pos, db.badgePos, db.focusPos = nil, nil, nil
   for _, k in ipairs(RESET) do db[k] = ns.DEFAULTS[k] end
   ns.ApplyLayout()
 end
@@ -573,7 +656,7 @@ events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 -- talents and gear can change spell ranges: rebuild the zones then
 for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
-                    "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
+                    "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_FOCUS_CHANGED" }) do
   pcall(events.RegisterEvent, events, e)   -- not every client has every event
 end
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
@@ -614,10 +697,10 @@ events:SetScript("OnEvent", function(_, event)
   elseif not db then
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
-    est:reset()
+    T.est:reset()
     goal, shown, noData, goalRate = nil, nil, false, 0
-    canHelpTarget = nil
-    ns.ForgetBracket()
+    helpable.target = nil
+    ns.ForgetBracket(T)
     if UnitExists("target") then
       local hostile = UnitCanAttack("player", "target")
       hostileTarget = issecret(hostile) or hostile
@@ -625,6 +708,12 @@ events:SetScript("OnEvent", function(_, event)
       tape:SetZones(zoneAt)
     end
     if db.nameplate then place() end
+    ns.RefreshShown()
+  elseif event == "PLAYER_FOCUS_CHANGED" then
+    F.est:reset()
+    helpable.focus, focusHostile = nil, nil
+    ns.ForgetBracket(F)
+    focusLabel:Clear()
     ns.RefreshShown()
   elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
     ns.RefreshShown()

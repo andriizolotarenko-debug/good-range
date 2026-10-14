@@ -363,3 +363,88 @@ function Tape:Draw(v, label)
     end
   end
 end
+
+-- The focus label: a small rectangle in the zone colour with the distance on it in whole yards.
+-- One look whatever the display; scale sizes it.
+local Focus = {}
+Focus.__index = Focus
+Tape.Focus = Focus
+local FOCUS_H = 18          -- px at scale 1
+local FOCUS_SAMPLE = { "28", "primary" }   -- shown while unlocked without a focus
+
+function Focus.New(parent, name)
+  local self = setmetatable({}, Focus)
+  local root = CreateFrame("Frame", name, parent)
+  if parent == UIParent then root:SetFrameStrata("MEDIUM") end
+  self.root = root
+  self.edge = root:CreateTexture(nil, "BACKGROUND")
+  self.edge:SetAllPoints()
+  self.edge:SetColorTexture(0, 0, 0, 0.85)
+  self.fill = root:CreateTexture(nil, "BORDER")
+  self.fill:SetPoint("TOPLEFT", 1, -1)
+  self.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+  self.fill:SetColorTexture(1, 1, 1, 1)
+  self.text = root:CreateFontString(nil, "OVERLAY")
+  -- shown while unlocked so the label can be found and dragged
+  self.box = root:CreateTexture(nil, "BACKGROUND", nil, -8)
+  self.box:SetPoint("TOPLEFT", -3, 3)
+  self.box:SetPoint("BOTTOMRIGHT", 3, -3)
+  self.box:SetColorTexture(1, 0.82, 0, 0.25)
+  self.hint = root:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  self.hint:SetPoint("BOTTOM", root, "TOP", 0, 4)
+  self.hint:SetText("Focus")
+  self:SetUnlocked(false)
+  return self
+end
+
+function Focus:SetLayout(scale, font)
+  font = font or FALLBACK_FONT
+  local h = math.max(10, math.floor(FOCUS_H * (scale or 1) + 0.5))
+  local size = math.max(8, math.floor(h * 0.72 + 0.5))
+  setFont(self.text, font, size, "")
+  -- one width for every value, the widest, so nothing shifts
+  self.text:SetText("99+")
+  local w = math.floor((self.text:GetStringWidth() or size * 1.6) + h * 0.6 + 0.5)
+  self.root:SetSize(w, h)
+  local m = DIGIT[font] or DEFAULT_DIGIT
+  self.text:ClearAllPoints()
+  self.text:SetPoint("CENTER", self.root, "CENTER", 0, -m.R * size)
+  self.text:SetTextColor(0.06, 0.06, 0.07)
+  self.text:SetText(self.shown or "")
+end
+
+-- text: the distance; kind: its zone ("primary" / "secondary" / "dead" / "far")
+function Focus:Set(text, kind)
+  if self.noData then
+    self.noData = false
+    self.root:SetAlpha(1)
+  end
+  if text == self.shown and kind == self.kind then return end
+  self.shown, self.kind = text, kind
+  local c = Tape.COLORS[kind] or Tape.COLORS.far
+  self.fill:SetVertexColor(c[1], c[2], c[3], 0.95)
+  self.text:SetText(text)
+end
+
+-- no range answer at all: grey and half transparent
+function Focus:SetNoData()
+  if self.noData then return end
+  self:Set("?", "far")
+  self.noData = true
+  self.root:SetAlpha(0.5)
+end
+
+-- a new focus (or none): forget the last value
+function Focus:Clear()
+  self.shown, self.kind = nil, nil
+  self.text:SetText("")
+  if self.unlocked then self:Set(FOCUS_SAMPLE[1], FOCUS_SAMPLE[2]) end
+end
+
+function Focus:SetUnlocked(on)
+  self.unlocked = on
+  self.box:SetShown(on)
+  self.hint:SetShown(on)
+  self.root:EnableMouse(on)
+  if on and not self.shown then self:Set(FOCUS_SAMPLE[1], FOCUS_SAMPLE[2]) end
+end
