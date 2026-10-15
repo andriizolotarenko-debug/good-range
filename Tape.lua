@@ -364,7 +364,8 @@ function Tape:Draw(v, label)
   end
 end
 
--- The focus label: a small rectangle in the zone colour with the distance on it in whole yards.
+-- The focus label: a small rectangle with slightly rounded corners in the zone colour, the
+-- distance on it in whole yards.
 -- One look whatever the display; scale sizes it.
 local Focus = {}
 Focus.__index = Focus
@@ -377,13 +378,32 @@ function Focus.New(parent, name)
   local root = CreateFrame("Frame", name, parent)
   if parent == UIParent then root:SetFrameStrata("MEDIUM") end
   self.root = root
-  self.edge = root:CreateTexture(nil, "BACKGROUND")
-  self.edge:SetAllPoints()
-  self.edge:SetColorTexture(0, 0, 0, 0.85)
-  self.fill = root:CreateTexture(nil, "BORDER")
-  self.fill:SetPoint("TOPLEFT", 1, -1)
-  self.fill:SetPoint("BOTTOMRIGHT", -1, 1)
-  self.fill:SetColorTexture(1, 1, 1, 1)
+  -- nine slices of one texture (white with a thin dark rim, tinted by zone): the corners keep
+  -- their shape at any size, the edges and the middle stretch
+  self.parts = {}
+  for i = 1, 9 do
+    local t = root:CreateTexture(nil, "BORDER")
+    t:SetTexture(MEDIA .. "focus")
+    local col, row = (i - 1) % 3, math.floor((i - 1) / 3)
+    local u, v = { 0, 0.25, 0.75, 1 }, { 0, 0.25, 0.75, 1 }
+    t:SetTexCoord(u[col + 1], u[col + 2], v[row + 1], v[row + 2])
+    self.parts[i] = t
+  end
+  local p = self.parts
+  p[1]:SetPoint("TOPLEFT")
+  p[3]:SetPoint("TOPRIGHT")
+  p[7]:SetPoint("BOTTOMLEFT")
+  p[9]:SetPoint("BOTTOMRIGHT")
+  p[2]:SetPoint("TOPLEFT", p[1], "TOPRIGHT")
+  p[2]:SetPoint("BOTTOMRIGHT", p[3], "BOTTOMLEFT")
+  p[8]:SetPoint("TOPLEFT", p[7], "TOPRIGHT")
+  p[8]:SetPoint("BOTTOMRIGHT", p[9], "BOTTOMLEFT")
+  p[4]:SetPoint("TOPLEFT", p[1], "BOTTOMLEFT")
+  p[4]:SetPoint("BOTTOMRIGHT", p[7], "TOPRIGHT")
+  p[6]:SetPoint("TOPLEFT", p[3], "BOTTOMLEFT")
+  p[6]:SetPoint("BOTTOMRIGHT", p[9], "TOPRIGHT")
+  p[5]:SetPoint("TOPLEFT", p[1], "BOTTOMRIGHT")
+  p[5]:SetPoint("BOTTOMRIGHT", p[9], "TOPLEFT")
   self.text = root:CreateFontString(nil, "OVERLAY")
   -- shown while unlocked so the label can be found and dragged
   self.box = root:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -406,6 +426,8 @@ function Focus:SetLayout(scale, font)
   self.text:SetText("99+")
   local w = math.floor((self.text:GetStringWidth() or size * 1.6) + h * 0.6 + 0.5)
   self.root:SetSize(w, h)
+  local corner = math.max(3, math.floor(h * 0.22 + 0.5))
+  for _, i in ipairs({ 1, 3, 7, 9 }) do self.parts[i]:SetSize(corner, corner) end
   local m = DIGIT[font] or DEFAULT_DIGIT
   self.text:ClearAllPoints()
   self.text:SetPoint("CENTER", self.root, "CENTER", 0, -m.R * size)
@@ -422,7 +444,7 @@ function Focus:Set(text, kind)
   if text == self.shown and kind == self.kind then return end
   self.shown, self.kind = text, kind
   local c = Tape.COLORS[kind] or Tape.COLORS.far
-  self.fill:SetVertexColor(c[1], c[2], c[3], 0.95)
+  for _, t in ipairs(self.parts) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
   self.text:SetText(text)
 end
 

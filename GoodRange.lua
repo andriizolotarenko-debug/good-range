@@ -293,6 +293,8 @@ root:SetMovable(true)
 root:SetClampedToScreen(true)
 root:RegisterForDrag("LeftButton")
 local plate   -- the target's nameplate the display hangs over, if any (see place)
+local focusPlate   -- the focus's nameplate the focus label hangs over, if any (see placeFocus)
+local targetOn, focusOn = false, false   -- which units are followed (see RefreshShown)
 -- After hanging on a nameplate, the game can hand the frame back no longer movable (Retail 12.x):
 -- make it movable again before each drag, and never let a refusal raise an error.
 local function drag(self)
@@ -338,11 +340,16 @@ local function plateAnchor(p)
   return bar
 end
 
+local function plateOf(unit)
+  return db.nameplate and C_NamePlate and C_NamePlate.GetNamePlateForUnit
+    and C_NamePlate.GetNamePlateForUnit(unit) or nil
+end
+
 -- Over the target's nameplate when that option is on and the target has one; otherwise (nameplates
--- off, the target too far or off screen) where it was put on the screen.
+-- off, the target too far or off screen) where it was put on the screen. A target the display
+-- is not shown for (see RefreshShown) gets no plate either, so the settings' sample stays put.
 local function place()
-  plate = db.nameplate and C_NamePlate and C_NamePlate.GetNamePlateForUnit
-    and C_NamePlate.GetNamePlateForUnit("target") or nil
+  plate = targetOn and plateOf("target") or nil
   local label = db.display == "label" and tape.badgeGap
   root:ClearAllPoints()
   if plate then
@@ -365,7 +372,11 @@ local function place()
     end
   end
   tape:SetUnlocked(db.unlocked)
-  if plate then tape.hint:SetText("Over the target's nameplate: move it with the nameplate offset sliders.") end
+  if plate then
+    tape.hint:SetText("Over the target's nameplate: move it with the nameplate offset sliders.")
+  elseif db.unlocked and UnitExists("target") and not targetOn then
+    tape.hint:SetText("Not shown for this target: see Show. Friendly players only if you can heal or buff them.")
+  end
 end
 
 -- The focus label: one look whatever the display, dragged on its own while the settings are open.
@@ -374,17 +385,28 @@ local focusRoot = focusLabel.root
 focusRoot:SetMovable(true)
 focusRoot:SetClampedToScreen(true)
 focusRoot:RegisterForDrag("LeftButton")
-focusRoot:SetScript("OnDragStart", drag)
+focusRoot:SetScript("OnDragStart", function(self)
+  if not focusPlate then drag(self) end
+end)
 focusRoot:SetScript("OnDragStop", function(self)
+  if focusPlate then return end
   self:StopMovingOrSizing()
   local point, _, rel, x, y = self:GetPoint()
   if x and not issecret(x) and not issecret(y) then db.focusPos = { point, rel, x, y } end
 end)
 focusRoot:Hide()
 
+-- Over the focus's nameplate with the same offsets as the display (just above the display when
+-- the focus is the target too); otherwise where it was put on the screen.
 local function placeFocus()
+  focusPlate = focusOn and plateOf("focus") or nil
   focusRoot:ClearAllPoints()
-  if db.focusPos then
+  if focusPlate and focusPlate == plate then
+    focusRoot:SetPoint("BOTTOM", root, "TOP", 0, 2)
+  elseif focusPlate then
+    local ok, anchor = pcall(plateAnchor, focusPlate)
+    focusRoot:SetPoint("BOTTOM", ok and anchor or focusPlate, "TOP", db.plateX, db.plateY)
+  elseif db.focusPos then
     focusRoot:SetPoint(db.focusPos[1], UIParent, db.focusPos[2], db.focusPos[3], db.focusPos[4])
   else
     focusRoot:SetPoint("CENTER", UIParent, "CENTER", 0, 66)   -- just under the display
@@ -397,7 +419,7 @@ local placePending
 local function placeSoon()
   if placePending then return end
   placePending = true
-  C_Timer.After(0, function() placePending = false; place() end)
+  C_Timer.After(0, function() placePending = false; place(); placeFocus() end)
 end
 
 tape:SetZones(zoneAt)
@@ -410,9 +432,9 @@ function ns.ApplyLayout()
   if not db then return end
   tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100)
   focusLabel:SetLayout(db.focusScale / 100, ns.DEFAULTS.font)
+  ns.RefreshShown()
   place()
   placeFocus()
-  ns.RefreshShown()
 end
 
 -- Tick: estimation at 20 Hz on a hidden driver frame -----------------------------------------
@@ -424,7 +446,6 @@ local shown                  -- what the tape shows now
 local acc, clock = 0, 0
 local ZONE_EVERY = 0.25    -- s between checks of what you can use (rage, form, cooldowns ...)
 local zoneClock = 0
-local targetOn, focusOn = false, false   -- which units are tracked (see RefreshShown)
 local focusSpans, focusHostile, focusZoneClock = {}, nil, 0
 
 -- One tick of a tracker: its bracket, then its estimate. ps: your speed, px / py: your position.
@@ -568,8 +589,11 @@ local function wanted(unit)
 end
 
 function ns.RefreshShown()
+  local was, wasFocus = targetOn, focusOn
   targetOn = wanted("target")
   focusOn = ns.HAS_FOCUS and db and db.focus and wanted("focus") or false
+  -- a unit shown or hidden now (combat, a heal learned ...) may gain or lose its nameplate spot
+  if db and db.nameplate and (was ~= targetOn or wasFocus ~= focusOn) then placeSoon() end
   driver:SetShown(targetOn or focusOn)
   root:SetShown(targetOn or (db and db.unlocked))
   -- while the settings are open the label shows (a sample without a focus) so it can be moved
@@ -707,14 +731,15 @@ events:SetScript("OnEvent", function(_, event)
       refreshZones()
       tape:SetZones(zoneAt)
     end
-    if db.nameplate then place() end
     ns.RefreshShown()
+    if db.nameplate or db.unlocked then place(); placeFocus() end
   elseif event == "PLAYER_FOCUS_CHANGED" then
     F.est:reset()
     helpable.focus, focusHostile = nil, nil
     ns.ForgetBracket(F)
     focusLabel:Clear()
     ns.RefreshShown()
+    if db.nameplate then placeFocus() end
   elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
     ns.RefreshShown()
   elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
