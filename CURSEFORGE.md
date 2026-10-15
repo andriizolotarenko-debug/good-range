@@ -79,7 +79,7 @@ For every class and role. Good Range shows exactly how far away your target is a
 | **Shaman**, Elemental / Restoration | RANGED | MELEE |
 | **Paladin**, Retribution / Protection | MELEE | JUDGE, RANGED (Exorcism, Hammer of Wrath) |
 | **Paladin**, Holy | RANGED | MELEE |
-| **Any class**, friendly player | HEAL, or BUFF if you have no heals | — |
+| **Any class**, friendly player | HEAL, or BUFF if you have no heals; grey FRIENDLY if neither reaches them | — |
 
 The ranges come from the game for the spell ranks you know, so range talents count. Druid forms, shaman and paladin talent trees and Retail specializations are picked up on their own. Friendly NPCs never show a range.
 

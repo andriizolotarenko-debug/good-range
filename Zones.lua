@@ -23,7 +23,7 @@ Zones.MELEE = 5
 
 -- every badge text, so the badge can be as wide as the longest
 Zones.LABELS = { "MELEE", "RANGED", "CHARGE", "THROW", "SHOOT", "JUDGE", "SHOCK", "HEAL", "BUFF",
-  "DEAD ZONE", "OUT OF RANGE" }
+  "DEAD ZONE", "OUT OF RANGE", "FRIENDLY" }
 
 local function ids(min, max, ...)
   local out = {}

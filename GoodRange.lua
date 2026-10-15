@@ -254,9 +254,30 @@ local hostileTarget = true
 local _, playerClass = UnitClass("player")
 local RETAIL = interface >= 100000
 
+-- Can one of your heals or buffs go on this unit? (A spell that can't target it, like Mend Pet
+-- on a player, gives no range answer at all.) Checked once per target / focus.
+local helpable = {}
+local function canHelp(unit)
+  if helpable[unit] == nil then
+    helpable[unit] = false
+    for _, id in ipairs(spellbook.helpIds or {}) do
+      local v = API.IsSpellInRange(id, unit)
+      if not issecret(v) and v ~= nil then
+        helpable[unit] = true
+        break
+      end
+    end
+  end
+  return helpable[unit]
+end
+
+-- A friendly player none of your heals or buffs can reach: the distance in grey all the way
+-- (green and blue mean you can act from there).
+local FRIEND_ONLY = { { 0, math.huge, "far", "FRIENDLY" } }
+
 -- The zones from what you can use right now (form, rage / mana, cooldowns, weapon, combat)
--- against an enemy or a friend.
-local function zonesFor(hostile)
+-- against an enemy or a friend (unit: whose heal / buff reach to check).
+local function zonesFor(hostile, unit)
   local ctx = {
     class = playerClass, hostile = hostile, known = spellbook.known, generic = spellbook.generic,
     getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
@@ -264,13 +285,14 @@ local function zonesFor(hostile)
     mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
     primaryRole = RETAIL and API.SpecRole() or nil,
   }
+  if not hostile and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
   return new, diag, ctx
 end
 
 -- Rebuilds the target's zones; true if they changed.
 local function refreshZones()
-  local new, diag, ctx = zonesFor(hostileTarget)
+  local new, diag, ctx = zonesFor(hostileTarget, "target")
   ns.diag = { class = playerClass, form = ctx.form, mainTree = ctx.mainTree, spells = diag }
   local parts = {}
   for _, sp in ipairs(new) do parts[#parts + 1] = table.concat(sp, ",") end
@@ -375,7 +397,7 @@ local function place()
   if plate then
     tape.hint:SetText("Over the target's nameplate: move it with the nameplate offset sliders.")
   elseif db.unlocked and UnitExists("target") and not targetOn then
-    tape.hint:SetText("Not shown for this target: see Show. Friendly players only if you can heal or buff them.")
+    tape.hint:SetText("Not shown for this target: friendly NPCs and the Show settings skip it.")
   end
 end
 
@@ -469,7 +491,7 @@ local function followFocus(dt, ps, px, py)
   focusZoneClock = focusZoneClock + dt
   if hostile ~= focusHostile or focusZoneClock >= ZONE_EVERY then
     focusHostile, focusZoneClock = hostile, 0
-    focusSpans = zonesFor(hostile)
+    focusSpans = zonesFor(hostile, "focus")
   end
   local lo, hi, b = follow(F, hostile, dt, ps, px, py)
   if not hi and lo == 0 then
@@ -552,25 +574,8 @@ root:SetScript("OnUpdate", function(_, elapsed)
   tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
 end)
 
--- Can one of your heals or buffs go on this unit? (A spell that can't target it, like Mend Pet
--- on a player, gives no range answer at all.) Checked once per target / focus.
-local helpable = {}
-local function canHelp(unit)
-  if helpable[unit] == nil then
-    helpable[unit] = false
-    for _, id in ipairs(spellbook.helpIds or {}) do
-      local v = API.IsSpellInRange(id, unit)
-      if not issecret(v) and v ~= nil then
-        helpable[unit] = true
-        break
-      end
-    end
-  end
-  return helpable[unit]
-end
-
 -- Followed if living and the options allow it in this state (combat, unit kind).
--- Never friendly NPCs; friendly players only if you can heal or buff them.
+-- Never friendly NPCs; friendly players in grey unless you can heal or buff them (see zonesFor).
 local function wanted(unit)
   local has = UnitExists(unit) and not UnitIsDeadOrGhost(unit)
   if has and db then
@@ -581,7 +586,7 @@ local function wanted(unit)
     if issecret(player) then player = true end
     if fighting and not db.inCombat or not fighting and not db.outOfCombat
         or hostile and not db.enemy or not hostile and not db.friendly
-        or not hostile and (not player or not canHelp(unit)) then
+        or not hostile and not player then
       has = false
     end
   end
