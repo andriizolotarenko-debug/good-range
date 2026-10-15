@@ -1,4 +1,4 @@
-## Interface: 120100, 16001, 20506
+## Interface: 120105, 16001, 20506
 ## Title: Good Range
 ## Notes: Distance to your target on a sliding range tape, coloured by what your class can do from there.
 ## Author: Andrii Zolotarenko
