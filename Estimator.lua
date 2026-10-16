@@ -71,8 +71,17 @@ function Estimator:update(now, dt, lo, hi, sp, px, py, still, mine)
   -- Inside the smallest step, a target that has stopped is next to you (in melee): when it moves
   -- again it mostly steps around you, not away, so from then on only your own movement moves the
   -- estimate, until it leaves that step.
+  if known and mine and sp - mine >= 0.1 then self.targetMovedAt = now end
   if known and mine and lo == 0 and hi then
-    if sp - mine < 0.1 then self.parked = true end
+    if not self.parked and sp - mine < 0.1 then
+      self.parked = true
+      -- One that ran up to you stops wherever it can hit you from, and its run in is too short
+      -- to time: the estimate would stay on whatever it reached, the bottom of the step or its
+      -- top alike. Nothing says where in the step it stands, so take the middle.
+      if self.b and not self.tx and self.targetMovedAt and now - self.targetMovedAt < 1 then
+        self.b = mid(lo, hi)
+      end
+    end
     if self.parked then sp = mine end
   else
     self.parked = nil
