@@ -479,7 +479,7 @@ local function follow(tr, hostile, dt, ps, px, py)
   -- estimate then moves only once a crossing shows the unit does.
   local sp = ps and ts and ps + ts or ps and ps > 0.05 and ps or nil
   -- An unknown unit speed counts as standing; the next crossing corrects a wrong guess.
-  local crossed = tr.est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1)
+  local crossed = tr.est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1, ps)
   return lo, hi, tr.est:valueB(lo, hi), crossed
 end
 

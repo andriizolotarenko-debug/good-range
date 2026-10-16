@@ -46,6 +46,14 @@ local scenarios = {
       local p = (t * 7) % 30
       return 0, 2 + ((p < 15) and (33 - p) or (18 + p - 15)), 0, 0 end },
   { "mob charges you (you stand)", 5.5, function(t) return 0, 0, 0, 42 - 7 * t end },
+  { "mob charges to melee, then steps around you", 12, function(t)
+      local arrive = (42 - 3.5) / 7
+      if t < arrive then return 0, 0, 0, 42 - 7 * t end
+      -- after a second, a 0.3 s step at run speed every 1.5 s: around you, not away
+      local k = math.max(0, t - arrive - 1)
+      local n = math.floor(k / 1.5)
+      local a = (n * 0.3 + math.min(k - n * 1.5, 0.3)) * 7 / 3.5
+      return 0, 0, 3.5 * math.sin(a), 3.5 * math.cos(a) end },
 }
 
 local function run(path, dur, withPos)
@@ -55,13 +63,14 @@ local function run(path, dur, withPos)
   local opx, opy, otx, oty = path(0)
   while t <= dur do
     local px, py, tx, ty = path(t)
-    local sp = (math.sqrt((px - opx) ^ 2 + (py - opy) ^ 2) + math.sqrt((tx - otx) ^ 2 + (ty - oty) ^ 2)) / TICK
+    local ps = math.sqrt((px - opx) ^ 2 + (py - opy) ^ 2) / TICK
+    local sp = ps + math.sqrt((tx - otx) ^ 2 + (ty - oty) ^ 2) / TICK
     local still = math.abs(tx - otx) + math.abs(ty - oty) < 1e-9
     opx, opy, otx, oty = px, py, tx, ty
     local d = math.max(0, math.sqrt((px - tx) ^ 2 + (py - ty) ^ 2) - REACH)
     local lo, hi = bracket(d)
-    if withPos then e:update(t, TICK, lo, hi, sp, px, py, still)
-    else e:update(t, TICK, lo, hi, sp) end
+    if withPos then e:update(t, TICK, lo, hi, sp, px, py, still, ps)
+    else e:update(t, TICK, lo, hi, sp, nil, nil, nil, ps) end
     if hi and t > 0.5 then
       local b = e:valueB(lo, hi)
       local a = e:valueA(t, lo, hi)

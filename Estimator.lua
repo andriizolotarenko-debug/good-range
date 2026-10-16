@@ -63,10 +63,20 @@ end
 -- (nil if none). sp: combined speed of player and target in yd/s, or nil where the game hides
 -- it (dungeons): then the estimate stands until a crossing shows something moves, and from there
 -- keeps the rate of the last crossings, easing into the next edge. px, py: the player's world
--- position, or nil where the game hides it. still: the target is not moving.
+-- position, or nil where the game hides it. still: the target is not moving. mine: the player's
+-- own part of sp, or nil if unknown.
 -- Returns a crossing record { at, dir, a, b, mid } when a boundary was crossed, else nil.
-function Estimator:update(now, dt, lo, hi, sp, px, py, still)
+function Estimator:update(now, dt, lo, hi, sp, px, py, still, mine)
   local known = sp ~= nil
+  -- Inside the smallest step, a target that has stopped is next to you (in melee): when it moves
+  -- again it mostly steps around you, not away, so from then on only your own movement moves the
+  -- estimate, until it leaves that step.
+  if known and mine and lo == 0 and hi then
+    if sp - mine < 0.1 then self.parked = true end
+    if self.parked then sp = mine end
+  else
+    self.parked = nil
+  end
   sp = sp or 0
   if known then
     self.evidence = nil
