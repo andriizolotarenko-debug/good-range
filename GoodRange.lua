@@ -93,8 +93,15 @@ local function build()
       known[info.name] = id
       local min, max = info.minRange or 0, info.maxRange or 0
       if max > MAX_STEP then max = 0 end
-      -- A spell with a minimum range says "false" up close too, so it can't bound the bracket.
+      -- A spell with a minimum range says "false" up close too, so it can't bound the bracket by
+      -- its reach; its minimum is a step of its own (a hunter's dead zone ends where Auto Shot
+      -- says it can fire, see check).
       if max > 0 and min == 0 then table.insert(group(max).spells, id) end
+      if max > min and min > MELEE then
+        local g = group(min)
+        g.minSpells = g.minSpells or {}
+        table.insert(g.minSpells, { id, max })
+      end
       -- Fallback zones for classes / clients the list in Zones.lua does not cover.
       local harmful, helpful = API.IsSpellHarmful(id), API.IsSpellHelpful(id)
       if harmful and max > MELEE then
@@ -111,7 +118,7 @@ local function build()
 
   for i = #groups, 1, -1 do
     local g = groups[i]
-    if not g.harmItem and not g.friendItem and not g.interact and #g.spells == 0 then
+    if not g.harmItem and not g.friendItem and not g.interact and #g.spells == 0 and not g.minSpells then
       table.remove(groups, i)
     end
   end
@@ -128,7 +135,33 @@ local function rebuildSoon()
 end
 
 -- true / false / nil (unknown) for one range step, and what gave the answer (for /gr list).
-local function check(g, unit, hostile, restricted)
+local check
+
+-- Is an enemy within max yd by any step above g? (Out of a min-range spell's range can be either
+-- side of it.)
+local function within(g, max, unit, restricted)
+  for _, o in ipairs(groups) do
+    if o.range > g.range and o.range <= max and check(o, unit, true, restricted) == true then return true end
+  end
+  return false
+end
+
+function check(g, unit, hostile, restricted)
+  -- a min-range spell answers first at its minimum, so the dead zone ends exactly where it
+  -- can fire: in range = past the minimum; out of range = inside it, if a step up to its reach
+  -- says the enemy is that close
+  if hostile and g.minSpells then
+    for _, m in ipairs(g.minSpells) do
+      local v = API.IsSpellInRange(m[1], unit)
+      if issecret(v) then
+        secrets.spell = secrets.spell + 1
+      elseif v == true then
+        return false, "min " .. m[1]
+      elseif v == false and within(g, m[2], unit, restricted) then
+        return true, "min- " .. m[1]
+      end
+    end
+  end
   local item = hostile and g.harmItem or g.friendItem
   if item and not restricted then
     local v = API.IsItemInRange(item, unit)
@@ -454,6 +487,7 @@ end
 
 function ns.ApplyLayout()
   if not db then return end
+  ns.Tape.SetColors(db.colors)
   tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100)
   focusLabel:SetLayout(db.focusScale / 100, ns.DEFAULTS.font)
   ns.RefreshShown()
@@ -482,6 +516,10 @@ local function follow(tr, hostile, dt, ps, px, py)
   local sp = ps and ts and ps + ts or ps and ps > 0.05 and ps or nil
   -- An unknown unit speed counts as standing; the next crossing corrects a wrong guess.
   local crossed = tr.est:update(clock, dt, lo, hi, sp, px, py, not ts or ts < 0.1, ps)
+  -- inside a min-range spell's minimum (the dead zone): just under its edge at most, where the
+  -- zones already turn green
+  local g = hi and tr.hiIdx and groups[tr.hiIdx]
+  if g and g.minSpells and g.range == hi then hi = hi - 0.05 end
   return lo, hi, tr.est:valueB(lo, hi), crossed
 end
 
@@ -668,10 +706,11 @@ SlashCmdList.GOODRANGE = function(msg)
   end
 end
 
--- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes and font
+-- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes, font and colours
 local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "plateX", "plateY", "focusScale" }
 function ns.ResetDefaults()
   db.pos, db.badgePos, db.focusPos = nil, nil, nil
+  db.colors = {}
   for _, k in ipairs(RESET) do db[k] = ns.DEFAULTS[k] end
   ns.ApplyLayout()
 end
@@ -719,6 +758,7 @@ events:SetScript("OnEvent", function(_, event)
       if db[k] == nil then db[k] = v end
     end
     db.ppy = math.min(40, math.max(10, db.ppy))   -- the ruler scale runs 10-40 now (was 15-100)
+    db.colors = db.colors or {}   -- zone colours you picked, { kind = { r, g, b } }
     ns.db = db
     db.unlocked = false   -- the tape is only unlocked while the settings window is open
     build()

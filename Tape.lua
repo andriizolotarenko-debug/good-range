@@ -55,6 +55,17 @@ Tape.COLORS = {
   dead = { 0.95, 0.33, 0.31 },
   far = { 0.545, 0.565, 0.6 },
 }
+Tape.DEFAULT_COLORS = {}
+for kind, c in pairs(Tape.COLORS) do Tape.DEFAULT_COLORS[kind] = { c[1], c[2], c[3] } end
+
+-- over: { kind = { r, g, b } } picked by the player; the other kinds take their default.
+-- Displays pick the colours up on their next SetLayout.
+function Tape.SetColors(over)
+  for kind, c in pairs(Tape.DEFAULT_COLORS) do
+    local o = over and over[kind] or c
+    Tape.COLORS[kind] = { o[1], o[2], o[3] }
+  end
+end
 
 local function fade(x, cx)
   local f = 1 - (math.abs(x - cx) / cx) ^ 2.2
@@ -433,6 +444,10 @@ function Focus:SetLayout(scale, font)
   self.text:SetPoint("CENTER", self.root, "CENTER", 0, -m.R * size)
   self.text:SetTextColor(0.06, 0.06, 0.07)
   self.text:SetText(self.shown or "")
+  if self.kind then
+    local c = Tape.COLORS[self.kind] or Tape.COLORS.far
+    for _, t in ipairs(self.parts) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
+  end
 end
 
 -- text: the distance; kind: its zone ("primary" / "secondary" / "dead" / "far")

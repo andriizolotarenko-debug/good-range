@@ -87,6 +87,25 @@ local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
   return bar
 end
 
+-- The game's colour picker on c ({ r, g, b }), live; Cancel puts the old colour back.
+local function pickColor(c, set)
+  local r, g, b = c[1], c[2], c[3]
+  local function picked() set(ColorPickerFrame:GetColorRGB()) end
+  local function cancelled() set(r, g, b) end
+  if ColorPickerFrame.SetupColorPickerAndShow then
+    ColorPickerFrame:SetupColorPickerAndShow({ r = r, g = g, b = b, swatchFunc = picked, cancelFunc = cancelled })
+  else
+    -- older clients: the picker's fields, then show it
+    ColorPickerFrame:Hide()
+    ColorPickerFrame.hasOpacity = false
+    ColorPickerFrame.previousValues = { r = r, g = g, b = b }
+    ColorPickerFrame.func, ColorPickerFrame.cancelFunc = picked, cancelled
+    ColorPickerFrame:SetColorRGB(r, g, b)
+    ColorPickerFrame:Show()
+  end
+  ColorPickerFrame:Raise()
+end
+
 local function fontName(path)
   for _, f in ipairs(ns.Tape.FONTS) do
     if f[1] == path then return f[2] end
@@ -193,7 +212,7 @@ local function build()
     function() return not (db.minimap and db.minimap.hide) end,
     function(v) ns.ShowMinimapButton(v) end)
   StaticPopupDialogs.GOODRANGE_RESET = {
-    text = "Reset Good Range's position, sizes and font to the defaults?",
+    text = "Reset Good Range's position, sizes, font and colours to the defaults?",
     button1 = YES or "Yes", button2 = NO or "No",
     OnAccept = function() ns.ResetDefaults(); refresh() end,
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
@@ -304,6 +323,42 @@ local function build()
   controls[#controls + 1] = slider(win, "Max range on enemies", ly, "maxRange", 0, 45, 1, LX - 2, COL - 50,
     function(v) v = math.floor(v + 0.5); return v == 0 and "Auto" or v .. " yd" end, ns.OnZonesChanged)
   ly = ly - 44
+
+  -- left: the zone colours, a swatch each that opens the colour picker
+  label(win, "Colours", LX + 2, ly)
+  ly = ly - 20
+  local kinds = { { "primary", "Your range" }, { "secondary", "Other range" },
+                  { "dead", "Dead zone" }, { "far", "Out of range" } }
+  for i, k in ipairs(kinds) do
+    local kind = k[1]
+    local sw = CreateFrame("Button", nil, win)
+    sw:SetSize(18, 18)
+    sw:SetPoint("TOPLEFT", LX + 2 + (i - 1) % 2 * (COL / 2), ly - math.floor((i - 1) / 2) * 24)
+    local edge = sw:CreateTexture(nil, "BACKGROUND")
+    edge:SetAllPoints()
+    edge:SetColorTexture(0.8, 0.8, 0.8, 1)
+    local fill = sw:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", -1, 1)
+    fill:SetColorTexture(1, 1, 1, 1)
+    local fs = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fs:SetPoint("LEFT", sw, "RIGHT", 6, 0)
+    fs:SetText(k[2])
+    sw.Refresh = function()
+      local c = ns.Tape.COLORS[kind]
+      fill:SetVertexColor(c[1], c[2], c[3])
+    end
+    sw:SetScript("OnClick", function()
+      pickColor(ns.Tape.COLORS[kind], function(r, g, b)
+        db.colors[kind] = { r, g, b }
+        ns.ApplyLayout()
+        showMode()
+        sw:Refresh()
+      end)
+    end)
+    controls[#controls + 1] = sw
+  end
+  ly = ly - 24 * math.ceil(#kinds / 2) - 8
 
   -- left: the focus label, off by default; one look, its own size and place
   if ns.HAS_FOCUS then
