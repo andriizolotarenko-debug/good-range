@@ -198,6 +198,18 @@ function Zones.build(ctx)
   return out, diag
 end
 
+-- Spans cut at your own max range (the Max range setting): nothing reaches past it, so beyond it
+-- you are out of range. Your auto attack (melee) always stays.
+function Zones.cap(spans, max)
+  local out = {}
+  for _, s in ipairs(spans) do
+    if s[4] == "MELEE" or s[1] < max then
+      out[#out + 1] = { s[1], math.min(s[2], max), s[3], s[4] }
+    end
+  end
+  return out
+end
+
 -- Sorted, merged copy of { {a, b}, ... }.
 function Zones.merge(list)
   table.sort(list, function(x, y) return x[1] < y[1] end)

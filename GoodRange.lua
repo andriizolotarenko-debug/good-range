@@ -36,6 +36,7 @@ ns.DEFAULTS = {
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
   unlocked = false, nameplate = false, plateX = 0, plateY = 2,
   focus = false, focusScale = 100,
+  maxRange = 0,   -- yd your attacks reach at most (0: from your spells)
 }
 -- The focus came with TBC; a client without it gets no focus option.
 ns.HAS_FOCUS = FocusFrame ~= nil or interface >= 20000
@@ -287,6 +288,7 @@ local function zonesFor(hostile, unit)
   }
   if not hostile and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
+  if hostile and db and db.maxRange > 0 then new = ns.Zones.cap(new, db.maxRange) end
   return new, diag, ctx
 end
 

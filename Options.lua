@@ -38,14 +38,17 @@ local function checkbox(parent, text, x, y, get, set, tooltip)
 end
 
 -- x, w: left edge and slider width (default: the full window width)
-local function slider(parent, text, y, key, min, max, step, x, w)
+-- show(v): the value's text; apply(): what a change redraws (default: the layout)
+local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
   x, w = x or 12, w or W - 80
+  show = show or function(v) return tostring(math.floor(v + 0.5)) end
+  apply = apply or ns.ApplyLayout
   label(parent, text, x + 4, y)
   local function changed(v)
     v = math.floor(v / step + 0.5) * step
     if ns.db[key] ~= v then
       ns.db[key] = v
-      ns.ApplyLayout()
+      apply()
     end
   end
   local s, template = ns.API.CreateFrameFrom("Frame", nil, parent, { "MinimalSliderWithSteppersTemplate" })
@@ -54,7 +57,7 @@ local function slider(parent, text, y, key, min, max, step, x, w)
     s:SetPoint("TOPLEFT", x, y - 16)
     s:SetSize(w, 20)   -- room on the right for the value
     local formatters = {
-      [MinimalSliderWithSteppersMixin.Label.Right] = function(v) return tostring(math.floor(v + 0.5)) end,
+      [MinimalSliderWithSteppersMixin.Label.Right] = show,
     }
     s:Init(ns.db[key], min, max, (max - min) / step, formatters)
     s:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, v) changed(v) end, s)
@@ -77,10 +80,10 @@ local function slider(parent, text, y, key, min, max, step, x, w)
   local value = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   value:SetPoint("LEFT", bar, "RIGHT", 10, 0)
   bar:SetScript("OnValueChanged", function(_, v)
-    value:SetText(tostring(math.floor(v + 0.5)))
+    value:SetText(show(v))
     changed(v)
   end)
-  bar.Refresh = function(self) self:SetValue(ns.db[key]); value:SetText(tostring(ns.db[key])) end
+  bar.Refresh = function(self) self:SetValue(ns.db[key]); value:SetText(show(ns.db[key])) end
   return bar
 end
 
@@ -296,6 +299,12 @@ local function build()
   shownWhen("Friendly target", "friendly", LX + COL / 2, ly)
   ly = ly - 30
 
+  -- left: a reach of your own, for specs whose spells the game reports further than they work
+  ly = ly - 14
+  controls[#controls + 1] = slider(win, "Max range on enemies", ly, "maxRange", 0, 45, 1, LX - 2, COL - 50,
+    function(v) v = math.floor(v + 0.5); return v == 0 and "Auto" or v .. " yd" end, ns.OnZonesChanged)
+  ly = ly - 44
+
   -- left: the focus label, off by default; one look, its own size and place
   if ns.HAS_FOCUS then
     ly = ly - 14
@@ -332,7 +341,7 @@ local function build()
       .. "nameplate (nameplates off, or the target too far or off screen) it stays where you put it.")
   ry = ry - 30
   sized("Offset X", "plateX", -150, 150, 1)
-  sized("Offset Y", "plateY", -50, 150, 1)
+  sized("Offset Y", "plateY", -200, 150, 1)
 
   -- below both: share the CurseForge link, copied from a box or whispered to a friend
   y = math.min(ly, ry) - 18
