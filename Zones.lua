@@ -198,14 +198,33 @@ function Zones.build(ctx)
   return out, diag
 end
 
--- Spans cut at your own max range (the Max range setting): nothing reaches past it, so beyond it
--- you are out of range. Your auto attack (melee) always stays.
-function Zones.cap(spans, max)
-  local out = {}
+-- Your own zones on enemies (Settings > Zones). z: { primary = { auto, from, to },
+-- secondary = { auto, from, to }, dead = { show, auto, from, to } }.
+-- A zone not on Auto is the one range you set, in the place of the first span it replaces (so
+-- melee keeps its priority); the dead zone off, or set by you, leaves no gap to fill with it.
+function Zones.custom(spans, z)
+  local out, done = {}, {}
   for _, s in ipairs(spans) do
-    if s[4] == "MELEE" or s[1] < max then
-      out[#out + 1] = { s[1], math.min(s[2], max), s[3], s[4] }
+    local c = z[s[3]]
+    if c and not c.auto then
+      if not done[s[3]] then
+        done[s[3]] = true
+        if c.to > c.from then out[#out + 1] = { c.from, c.to, s[3], s[4] } end
+      end
+    else
+      out[#out + 1] = s
     end
+  end
+  for kind, tag in pairs({ primary = "RANGED", secondary = "MELEE" }) do
+    local c = z[kind]
+    if c and not c.auto and not done[kind] and c.to > c.from then
+      out[#out + 1] = { c.from, c.to, kind, tag }
+    end
+  end
+  local d = z.dead
+  if d and (not d.show or not d.auto) then
+    out.noGap = true
+    if d.show and d.to > d.from then table.insert(out, 1, { d.from, d.to, "dead", "DEAD ZONE" }) end
   end
   return out
 end
@@ -226,8 +245,8 @@ function Zones.merge(list)
 end
 
 -- d in yd -> kind, label. The first span that covers d wins (melee, then primary, then
--- secondary); a gap below your furthest
--- reach is the dead zone, beyond it you are out of range.
+-- secondary); a gap below your furthest reach is the dead zone (unless spans.noGap), beyond it
+-- you are out of range.
 function Zones.at(d, spans)
   local reach, hit = 0, nil
   for _, s in ipairs(spans) do
@@ -235,7 +254,7 @@ function Zones.at(d, spans)
     if not hit and d >= s[1] and d <= s[2] then hit = s end
   end
   if hit then return hit[3], hit[4] end
-  if d < reach then return "dead", "DEAD ZONE" end
+  if d < reach and not spans.noGap then return "dead", "DEAD ZONE" end
   return "far", "OUT OF RANGE"
 end
 

@@ -36,7 +36,6 @@ ns.DEFAULTS = {
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
   unlocked = false, nameplate = false, plateX = 0, plateY = 2,
   focus = false, focusScale = 100,
-  maxRange = 0,   -- yd your attacks reach at most (0: from your spells)
 }
 -- The focus came with TBC; a client without it gets no focus option.
 ns.HAS_FOCUS = FocusFrame ~= nil or interface >= 20000
@@ -321,7 +320,7 @@ local function zonesFor(hostile, unit)
   }
   if not hostile and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
-  if hostile and db and db.maxRange > 0 then new = ns.Zones.cap(new, db.maxRange) end
+  if hostile and db then new = ns.Zones.custom(new, db.zones) end
   return new, diag, ctx
 end
 
@@ -331,6 +330,7 @@ local function refreshZones()
   ns.diag = { class = playerClass, form = ctx.form, mainTree = ctx.mainTree, spells = diag }
   local parts = {}
   for _, sp in ipairs(new) do parts[#parts + 1] = table.concat(sp, ",") end
+  if new.noGap then parts[#parts + 1] = "no gap" end
   local key = table.concat(parts, ";")
   if key == spanKey then return false end
   spans, spanKey = new, key
@@ -706,12 +706,33 @@ SlashCmdList.GOODRANGE = function(msg)
   end
 end
 
--- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes, font and colours
+-- Settings > Zones: on Auto every zone comes from your spells, as before
+local ZONES = {
+  primary = { auto = true, from = 0, to = 30 },
+  secondary = { auto = true, from = 0, to = 5 },
+  dead = { show = true, auto = true, from = 5, to = 8 },
+}
+local function zoneSettings(z)
+  z = z or {}
+  for kind, d in pairs(ZONES) do
+    z[kind] = z[kind] or {}
+    for k, v in pairs(d) do
+      if z[kind][k] == nil then z[kind][k] = v end
+    end
+  end
+  return z
+end
+
+-- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes, font,
+-- colours and zones
 local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "plateX", "plateY", "focusScale" }
 function ns.ResetDefaults()
   db.pos, db.badgePos, db.focusPos = nil, nil, nil
   db.colors = {}
+  for _, z in pairs(db.zones) do wipe(z) end   -- in place: the settings window holds them
+  zoneSettings(db.zones)
   for _, k in ipairs(RESET) do db[k] = ns.DEFAULTS[k] end
+  ns.OnZonesChanged()
   ns.ApplyLayout()
 end
 
@@ -759,6 +780,8 @@ events:SetScript("OnEvent", function(_, event)
     end
     db.ppy = math.min(40, math.max(10, db.ppy))   -- the ruler scale runs 10-40 now (was 15-100)
     db.colors = db.colors or {}   -- zone colours you picked, { kind = { r, g, b } }
+    db.zones = zoneSettings(db.zones)
+    db.maxRange = nil   -- an unreleased test build's setting, now the zones' To
     ns.db = db
     db.unlocked = false   -- the tape is only unlocked while the settings window is open
     build()

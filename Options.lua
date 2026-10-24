@@ -38,16 +38,23 @@ local function checkbox(parent, text, x, y, get, set, tooltip)
 end
 
 -- x, w: left edge and slider width (default: the full window width)
+-- key: a setting in ns.db, or { get, set } for one kept elsewhere
 -- show(v): the value's text; apply(): what a change redraws (default: the layout)
 local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
   x, w = x or 12, w or W - 80
   show = show or function(v) return tostring(math.floor(v + 0.5)) end
   apply = apply or ns.ApplyLayout
+  local get, set
+  if type(key) == "table" then
+    get, set = key[1], key[2]
+  else
+    get, set = function() return ns.db[key] end, function(v) ns.db[key] = v end
+  end
   label(parent, text, x + 4, y)
   local function changed(v)
     v = math.floor(v / step + 0.5) * step
-    if ns.db[key] ~= v then
-      ns.db[key] = v
+    if get() ~= v then
+      set(v)
       apply()
     end
   end
@@ -59,9 +66,9 @@ local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
     local formatters = {
       [MinimalSliderWithSteppersMixin.Label.Right] = show,
     }
-    s:Init(ns.db[key], min, max, (max - min) / step, formatters)
+    s:Init(get(), min, max, (max - min) / step, formatters)
     s:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, v) changed(v) end, s)
-    s.Refresh = function(self) self:SetValue(ns.db[key]) end
+    s.Refresh = function(self) self:SetValue(get()) end
     return s
   end
   -- older clients: the classic options slider and a value label
@@ -83,7 +90,7 @@ local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
     value:SetText(show(v))
     changed(v)
   end)
-  bar.Refresh = function(self) self:SetValue(ns.db[key]); value:SetText(show(ns.db[key])) end
+  bar.Refresh = function(self) self:SetValue(get()); value:SetText(show(get())) end
   return bar
 end
 
@@ -204,15 +211,40 @@ local function build()
     for _, c in ipairs(controls) do c:Refresh() end
   end
   local y = -34
+  local y0 = y
   -- two columns: the look on the left, sizes and the nameplate on the right; sharing below both
   local COL = (W - 36) / 2
   local LX, RX = 14, 14 + COL + 8
 
-  controls[#controls + 1] = checkbox(win, "Minimap button", 12, y,
+  -- two pages, picked by the tabs at the top left: the look and place, and the zones
+  local pages, tabs = {}, {}
+  local function showPage(name)
+    db.page = name
+    for n, pg in pairs(pages) do
+      pg:SetShown(n == name)
+      if n == name then win:SetHeight(pg.height) end
+    end
+    for n, t in pairs(tabs) do
+      if n == name then t:LockHighlight() else t:UnlockHighlight() end
+    end
+  end
+  for i, t in ipairs({ { "display", "Display" }, { "zones", "Zones" } }) do
+    local pg = CreateFrame("Frame", nil, win)
+    pg:SetAllPoints()
+    pages[t[1]] = pg
+    local tab = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+    tab:SetSize(100, 22)
+    tab:SetPoint("TOPLEFT", 12 + (i - 1) * 104, y - 1)
+    tab:SetText(t[2])
+    tab:SetScript("OnClick", function() showPage(t[1]) end)
+    tabs[t[1]] = tab
+  end
+
+  controls[#controls + 1] = checkbox(win, "Minimap button", W - 14 - 120 - 16 - 120, y,
     function() return not (db.minimap and db.minimap.hide) end,
     function(v) ns.ShowMinimapButton(v) end)
   StaticPopupDialogs.GOODRANGE_RESET = {
-    text = "Reset Good Range's position, sizes, font and colours to the defaults?",
+    text = "Reset Good Range's position, sizes, font, colours and zones to the defaults?",
     button1 = YES or "Yes", button2 = NO or "No",
     OnAccept = function() ns.ResetDefaults(); refresh() end,
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
@@ -223,10 +255,12 @@ local function build()
   reset:SetText("Reset Defaults")
   reset:SetScript("OnClick", function() StaticPopup_Show("GOODRANGE_RESET") end)
 
+  local page = pages.display
+
   -- left: display, clickable previews two to a row: the sliding tape, the number with a zone
   -- badge and the number alone
   local ly = y - 42
-  label(win, "Display", LX + 2, ly)
+  label(page, "Display", LX + 2, ly)
   ly = ly - 18
   local tiles = {}
   local sample = { { 8, 35, "primary", "RANGED" }, { 0, 5, "secondary", "MELEE" } }   -- a hunter
@@ -250,7 +284,7 @@ local function build()
   local modes = { { "tape", "Tape" }, { "label", "Label + Number" }, { "badge", "Label" }, { "number", "Number" } }
   local tileW = (COL - 12) / 2
   for i, m in ipairs(modes) do
-    local tile = CreateFrame("Button", nil, win)
+    local tile = CreateFrame("Button", nil, page)
     tile:SetSize(tileW, 78)
     tile:SetPoint("TOPLEFT", LX + (i - 1) % 2 * (tileW + 12), ly - math.floor((i - 1) / 2) * 90)
     local bg = tile:CreateTexture(nil, "BACKGROUND")
@@ -282,9 +316,9 @@ local function build()
 
   -- font: step through the list with arrows
   ly = ly - 14 - 90 * math.ceil(#modes / 2)
-  label(win, "Font", LX + 2, ly)
-  local fontText = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  fontText:SetPoint("TOP", win, "TOPLEFT", LX + COL / 2, ly - 20)
+  label(page, "Font", LX + 2, ly)
+  local fontText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  fontText:SetPoint("TOP", page, "TOPLEFT", LX + COL / 2, ly - 20)
   local function stepFont(dir)
     local list, at = ns.Tape.FONTS, 1
     for i, f in ipairs(list) do
@@ -296,7 +330,7 @@ local function build()
     showMode()
   end
   for _, side in ipairs({ { "<", -1, LX }, { ">", 1, LX + COL - 28 } }) do
-    local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+    local b = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     b:SetSize(28, 22)
     b:SetPoint("TOPLEFT", side[3], ly - 16)
     b:SetText(side[1])
@@ -305,10 +339,10 @@ local function build()
   controls[#controls + 1] = { Refresh = function() fontText:SetText(fontName(db.font)) end }
 
   ly = ly - 62
-  label(win, "Show", LX + 2, ly)
+  label(page, "Show", LX + 2, ly)
   ly = ly - 18
   local function shownWhen(text, key, x, yy)
-    controls[#controls + 1] = checkbox(win, text, x, yy,
+    controls[#controls + 1] = checkbox(page, text, x, yy,
       function() return db[key] end, function(v) db[key] = v; ns.RefreshShown() end)
   end
   shownWhen("In combat", "inCombat", LX - 2, ly)
@@ -318,66 +352,24 @@ local function build()
   shownWhen("Friendly target", "friendly", LX + COL / 2, ly)
   ly = ly - 30
 
-  -- left: a reach of your own, for specs whose spells the game reports further than they work
-  ly = ly - 14
-  controls[#controls + 1] = slider(win, "Max range on enemies", ly, "maxRange", 0, 45, 1, LX - 2, COL - 50,
-    function(v) v = math.floor(v + 0.5); return v == 0 and "Auto" or v .. " yd" end, ns.OnZonesChanged)
-  ly = ly - 44
-
-  -- left: the zone colours, a swatch each that opens the colour picker
-  label(win, "Colours", LX + 2, ly)
-  ly = ly - 20
-  local kinds = { { "primary", "Your range" }, { "secondary", "Other range" },
-                  { "dead", "Dead zone" }, { "far", "Out of range" } }
-  for i, k in ipairs(kinds) do
-    local kind = k[1]
-    local sw = CreateFrame("Button", nil, win)
-    sw:SetSize(18, 18)
-    sw:SetPoint("TOPLEFT", LX + 2 + (i - 1) % 2 * (COL / 2), ly - math.floor((i - 1) / 2) * 24)
-    local edge = sw:CreateTexture(nil, "BACKGROUND")
-    edge:SetAllPoints()
-    edge:SetColorTexture(0.8, 0.8, 0.8, 1)
-    local fill = sw:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", 1, -1)
-    fill:SetPoint("BOTTOMRIGHT", -1, 1)
-    fill:SetColorTexture(1, 1, 1, 1)
-    local fs = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetPoint("LEFT", sw, "RIGHT", 6, 0)
-    fs:SetText(k[2])
-    sw.Refresh = function()
-      local c = ns.Tape.COLORS[kind]
-      fill:SetVertexColor(c[1], c[2], c[3])
-    end
-    sw:SetScript("OnClick", function()
-      pickColor(ns.Tape.COLORS[kind], function(r, g, b)
-        db.colors[kind] = { r, g, b }
-        ns.ApplyLayout()
-        showMode()
-        sw:Refresh()
-      end)
-    end)
-    controls[#controls + 1] = sw
-  end
-  ly = ly - 24 * math.ceil(#kinds / 2) - 8
-
   -- left: the focus label, off by default; one look, its own size and place
   if ns.HAS_FOCUS then
     ly = ly - 14
-    label(win, "Focus target", LX + 2, ly)
+    label(page, "Focus target", LX + 2, ly)
     ly = ly - 18
-    controls[#controls + 1] = checkbox(win, "Range to your focus", LX - 2, ly,
+    controls[#controls + 1] = checkbox(page, "Range to your focus", LX - 2, ly,
       function() return db.focus end, function(v) db.focus = v; ns.ApplyLayout() end,
       "A small label with the distance to your focus, coloured by your zones like the main display. "
         .. "Drag it anywhere while this window is open.")
     ly = ly - 30
-    controls[#controls + 1] = slider(win, "Scale", ly, "focusScale", 50, 200, 5, LX - 2, COL - 50)
+    controls[#controls + 1] = slider(page, "Scale", ly, "focusScale", 50, 200, 5, LX - 2, COL - 50)
     ly = ly - 44
   end
 
   -- right: sizes
   local ry = y - 42
   local function sized(text, key, min, max, step)
-    controls[#controls + 1] = slider(win, text, ry, key, min, max, step, RX - 2, COL - 50)
+    controls[#controls + 1] = slider(page, text, ry, key, min, max, step, RX - 2, COL - 50)
     ry = ry - 44
   end
   sized("Width", "width", 100, 1000, 10)
@@ -388,9 +380,9 @@ local function build()
 
   -- right: over the target's nameplate, nudged by two offsets
   ry = ry - 14
-  label(win, "Nameplate attach", RX, ry)
+  label(page, "Nameplate attach", RX, ry)
   ry = ry - 18
-  controls[#controls + 1] = checkbox(win, "Above the target's nameplate", RX - 2, ry,
+  controls[#controls + 1] = checkbox(page, "Above the target's nameplate", RX - 2, ry,
     function() return db.nameplate end, function(v) db.nameplate = v; ns.ApplyLayout() end,
     "The display hangs over your target's nameplate and moves with it. When the target has no "
       .. "nameplate (nameplates off, or the target too far or off screen) it stays where you put it.")
@@ -400,9 +392,9 @@ local function build()
 
   -- below both: share the CurseForge link, copied from a box or whispered to a friend
   y = math.min(ly, ry) - 18
-  label(win, "Share with a friend", LX + 2, y)
+  label(page, "Share with a friend", LX + 2, y)
   y = y - 20
-  local link = CreateFrame("EditBox", nil, win, "InputBoxTemplate")
+  local link = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
   link:SetSize(W - 2 * LX - 2 * (90 + 8) - 6, 22)
   link:SetPoint("TOPLEFT", LX + 6, y)
   link:SetAutoFocus(false)
@@ -415,9 +407,9 @@ local function build()
   link:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
   link:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
   link:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-  local hint = win:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  local hint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   hint:SetPoint("TOPLEFT", link, "BOTTOMLEFT", -4, -3)
-  local copy = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+  local copy = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
   copy:SetSize(90, 22)
   copy:SetPoint("LEFT", link, "RIGHT", 8, 0)
   copy:SetText("Copy")
@@ -427,13 +419,97 @@ local function build()
     -- the game can't write to the clipboard: select the link for the player's own copy keys
     hint:SetText(((IsMacClient and IsMacClient()) and "Cmd" or "Ctrl") .. "+C copies the link")
   end)
-  local whisper = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+  local whisper = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
   whisper:SetSize(90, 22)
   whisper:SetPoint("LEFT", copy, "RIGHT", 8, 0)
   whisper:SetText("Whisper")
   whisper:SetScript("OnClick", function() StaticPopup_Show("GOODRANGE_WHISPER", nil, nil, friendlyTarget()) end)
   y = y - 22 - 18
-  win:SetHeight(-y + 12)
+  page.height = -y + 12
+
+  -- the Zones page: per zone its colour, and on enemies a range of your own instead of the
+  -- one from your spells; the dead zone can be switched off
+  page = pages.zones
+  local zy = y0 - 42
+  label(page, "Zones", LX + 2, zy)
+  local note = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  note:SetPoint("TOPLEFT", LX + 2, zy - 18)
+  note:SetWidth(W - 2 * LX)
+  note:SetJustifyH("LEFT")
+  note:SetText("Auto: from your class, spec and spells. Ranges you set count on enemies; heals and buffs "
+    .. "on friendly targets always come from your spells.")
+  zy = zy - 46
+  local function swatch(kind, text, x, yy)
+    local sw = CreateFrame("Button", nil, page)
+    sw:SetSize(18, 18)
+    sw:SetPoint("TOPLEFT", x, yy)
+    local edge = sw:CreateTexture(nil, "BACKGROUND")
+    edge:SetAllPoints()
+    edge:SetColorTexture(0.8, 0.8, 0.8, 1)
+    local fill = sw:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", -1, 1)
+    fill:SetColorTexture(1, 1, 1, 1)
+    local fs = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fs:SetPoint("LEFT", sw, "RIGHT", 6, 0)
+    fs:SetText(text)
+    sw.Refresh = function()
+      local c = ns.Tape.COLORS[kind]
+      fill:SetVertexColor(c[1], c[2], c[3])
+    end
+    sw:SetScript("OnClick", function()
+      pickColor(ns.Tape.COLORS[kind], function(r, g, b)
+        db.colors[kind] = { r, g, b }
+        ns.ApplyLayout()
+        showMode()
+        sw:Refresh()
+      end)
+    end)
+    sw:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText("Click to pick the colour", 1, 1, 1)
+      GameTooltip:Show()
+    end)
+    sw:SetScript("OnLeave", GameTooltip_Hide)
+    controls[#controls + 1] = sw
+  end
+  local function yards(v) return math.floor(v + 0.5) .. " yd" end
+  -- one zone: its colour, Auto (and Show for the dead zone), and From / To while not on Auto
+  local function zoneRow(kind, text, canHide)
+    local z = db.zones[kind]
+    swatch(kind, text, LX + 2, zy)
+    local range = CreateFrame("Frame", nil, page)
+    range:SetAllPoints()
+    local function showRange() range:SetShown(not z.auto and z.show ~= false) end
+    local function changed() showRange(); ns.OnZonesChanged() end
+    local x = LX + 2 + 150
+    if canHide then
+      controls[#controls + 1] = checkbox(page, "Show", x, zy + 3,
+        function() return z.show end, function(v) z.show = v; changed() end,
+        "Off: no dead zone; a gap below your furthest reach reads out of range.")
+      x = x + 90
+    end
+    controls[#controls + 1] = checkbox(page, "Auto", x, zy + 3,
+      function() return z.auto end, function(v) z.auto = v; changed() end,
+      "On: from your class, spec and spells. Off: the range you set below.")
+    controls[#controls + 1] = { Refresh = showRange }
+    zy = zy - 26
+    for i, edge in ipairs({ "from", "to" }) do
+      controls[#controls + 1] = slider(range, i == 1 and "From" or "To", zy, {
+        function() return z[edge] end, function(v) z[edge] = v end,
+      }, 0, 45, 1, (i == 1 and LX or RX) - 2, COL - 50, yards, ns.OnZonesChanged)
+    end
+    zy = zy - 50
+  end
+  zoneRow("primary", "Your range")
+  zoneRow("secondary", "Other range")
+  zoneRow("dead", "Dead zone", true)
+  swatch("far", "Out of range", LX + 2, zy)
+  local farNote = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  farNote:SetPoint("TOPLEFT", LX + 2 + 150, zy - 3)
+  farNote:SetText("Beyond everything, and friendly players you can't heal or buff.")
+  zy = zy - 34
+  page.height = -zy + 12
 
   -- the display is unlocked exactly while this window is open
   win:SetScript("OnShow", function()
@@ -441,6 +517,7 @@ local function build()
     db.unlocked = true
     ns.ApplyLayout()
   end)
+  showPage(db.page == "zones" and "zones" or "display")
   win:SetScript("OnHide", function()
     db.unlocked = false
     ns.ApplyLayout()
