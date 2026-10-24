@@ -229,6 +229,25 @@ function Zones.custom(spans, z)
   return out
 end
 
+-- From, to of one kind in spans (nil if none): a zone's whole reach, or for "dead" the first gap
+-- below the furthest one.
+function Zones.extent(spans, kind)
+  if kind == "dead" then
+    local list = {}
+    for _, s in ipairs(spans) do list[#list + 1] = { s[1], s[2] } end
+    local merged = Zones.merge(list)
+    if #merged > 1 then return merged[1][2], merged[2][1] end
+    return nil
+  end
+  local from, to
+  for _, s in ipairs(spans) do
+    if s[3] == kind then
+      from, to = math.min(from or s[1], s[1]), math.max(to or s[2], s[2])
+    end
+  end
+  return from, to
+end
+
 -- Sorted, merged copy of { {a, b}, ... }.
 function Zones.merge(list)
   table.sort(list, function(x, y) return x[1] < y[1] end)

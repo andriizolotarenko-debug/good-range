@@ -227,6 +227,7 @@ local function build()
     for n, t in pairs(tabs) do
       if n == name then t:LockHighlight() else t:UnlockHighlight() end
     end
+    for _, c in ipairs(controls) do c:Refresh() end   -- "Auto now" follows the target
   end
   for i, t in ipairs({ { "display", "Display" }, { "zones", "Zones" } }) do
     local pg = CreateFrame("Frame", nil, win)
@@ -489,15 +490,35 @@ local function build()
         "Off: no dead zone; a gap below your furthest reach reads out of range.")
       x = x + 90
     end
-    controls[#controls + 1] = checkbox(page, "Auto", x, zy + 3,
-      function() return z.auto end, function(v) z.auto = v; changed() end,
-      "On: from your class, spec and spells. Off: the range you set below.")
-    controls[#controls + 1] = { Refresh = showRange }
+    -- what Auto gives now; turning Auto off starts the sliders there
+    local now = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    now:SetPoint("TOPLEFT", x + 80, zy - 2)
+    local function showNow()
+      local from, to = ns.AutoRange(kind)
+      now:SetText(from and ("Auto now: %g-%g yd"):format(from, to) or "Auto now: none")
+    end
+    local auto = checkbox(page, "Auto", x, zy + 3,
+      function() return z.auto end,
+      function(v)
+        z.auto = v
+        local from, to = ns.AutoRange(kind)
+        if not v and from then
+          z.from, z.to = math.min(45, math.floor(from + 0.5)), math.min(45, math.floor(to + 0.5))
+          for _, s in ipairs(range.sliders) do s:Refresh() end
+        end
+        changed()
+      end,
+      "On: from your class, spec, spells and talents. Off: the range you set below, starting from "
+        .. "what Auto gives now.")
+    controls[#controls + 1] = auto
+    controls[#controls + 1] = { Refresh = function() showRange(); showNow() end }
+    range.sliders = {}
     zy = zy - 26
     for i, edge in ipairs({ "from", "to" }) do
-      controls[#controls + 1] = slider(range, i == 1 and "From" or "To", zy, {
+      range.sliders[i] = slider(range, i == 1 and "From" or "To", zy, {
         function() return z[edge] end, function(v) z[edge] = v end,
       }, 0, 45, 1, (i == 1 and LX or RX) - 2, COL - 50, yards, ns.OnZonesChanged)
+      controls[#controls + 1] = range.sliders[i]
     end
     zy = zy - 50
   end

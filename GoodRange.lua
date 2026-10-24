@@ -310,7 +310,8 @@ local FRIEND_ONLY = { { 0, math.huge, "far", "FRIENDLY" } }
 
 -- The zones from what you can use right now (form, rage / mana, cooldowns, weapon, combat)
 -- against an enemy or a friend (unit: whose heal / buff reach to check).
-local function zonesFor(hostile, unit)
+-- auto: as Auto gives them, without the ranges set in Settings > Zones
+local function zonesFor(hostile, unit, auto)
   local ctx = {
     class = playerClass, hostile = hostile, known = spellbook.known, generic = spellbook.generic,
     getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
@@ -320,8 +321,14 @@ local function zonesFor(hostile, unit)
   }
   if not hostile and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
-  if hostile and db then new = ns.Zones.custom(new, db.zones) end
+  if hostile and db and not auto then new = ns.Zones.custom(new, db.zones) end
   return new, diag, ctx
+end
+
+-- What Auto gives on enemies right now (your class, spec, spells and talents, form): from, to
+-- of one zone kind, or nil
+function ns.AutoRange(kind)
+  return ns.Zones.extent((zonesFor(true, "target", true)), kind)
 end
 
 -- Rebuilds the target's zones; true if they changed.
