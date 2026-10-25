@@ -274,7 +274,7 @@ local function build()
       end
       tile.caption:SetTextColor(on and 1 or 0.7, on and 0.82 or 0.7, on and 0 or 0.7)
       tile.preview:SetLayout(mode == "tape" and 116 or 90, 26, (mode == "label" or mode == "badge") and 18 or 22, 20,
-        db.font, mode)
+        db.font, mode, nil, db.showUnit)
       tile.preview:Draw(21.4, "21")
       -- the label's badge hangs off the number's left: centre the pair, not the number
       local shift = mode == "label" and (tile.preview.badgeW + tile.preview.badgeGap) / 2 or 0
@@ -339,7 +339,11 @@ local function build()
   end
   controls[#controls + 1] = { Refresh = function() fontText:SetText(fontName(db.font)) end }
 
-  ly = ly - 62
+  ly = ly - 46
+  controls[#controls + 1] = checkbox(page, 'Show "yd" after the number', LX - 2, ly,
+    function() return db.showUnit end, function(v) db.showUnit = v; ns.ApplyLayout(); showMode() end)
+
+  ly = ly - 40
   label(page, "Show", LX + 2, ly)
   ly = ly - 18
   local function shownWhen(text, key, x, yy)

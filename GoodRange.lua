@@ -35,7 +35,7 @@ ns.DEFAULTS = {
   font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
   inCombat = true, outOfCombat = true, friendly = true, enemy = true,
   unlocked = false, nameplate = false, plateX = 0, plateY = 2,
-  focus = false, focusScale = 100,
+  focus = false, focusScale = 100, showUnit = true,
 }
 -- The focus came with TBC; a client without it gets no focus option.
 ns.HAS_FOCUS = FocusFrame ~= nil or interface >= 20000
@@ -495,7 +495,7 @@ end
 function ns.ApplyLayout()
   if not db then return end
   ns.Tape.SetColors(db.colors)
-  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100)
+  tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100, db.showUnit)
   focusLabel:SetLayout(db.focusScale / 100, ns.DEFAULTS.font)
   ns.RefreshShown()
   place()

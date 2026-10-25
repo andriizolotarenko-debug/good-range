@@ -152,12 +152,13 @@ function Tape:SetZones(zoneAt)
 end
 
 -- style: "tape", "label", "badge" or "number". badgeScale: the badge's height as a part of the digits'
--- (1 when nil).
-function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
+-- (1 when nil). showUnit: false hides the "yd" after the number.
+function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale, showUnit)
   self.width, self.height, self.fontSize, self.ppy = width, height, fontSize, ppy
   self.showTape = style ~= "label" and style ~= "number" and style ~= "badge"
   self.showBadge = style == "label" or style == "badge"
   self.showNumber = style ~= "badge"
+  self.showUnit = self.showNumber and showUnit ~= false
   local k = height / BASE_H
   self.k = k
   self.base = math.floor(height - 12 * k + 0.5)   -- tick baseline, from the top of the tape area
@@ -165,7 +166,7 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
   self.area:SetShown(self.showTape)
   self.badge:SetShown(self.showBadge)
   self.number:SetShown(self.showNumber)
-  self.unit:SetShown(self.showNumber)
+  self.unit:SetShown(self.showUnit)
 
   font = font or FALLBACK_FONT
   setFont(self.number, font, fontSize, "OUTLINE")
@@ -218,9 +219,9 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
     -- number: centred on its digits in a two-digit row, "yd" hanging off its right
     self.number:SetText("88")
     local slot = self.number:GetStringWidth() or fontSize
-    local unitW = self.unit:GetStringWidth() or fontSize * 0.6
+    local unitW = self.showUnit and 2 + (self.unit:GetStringWidth() or fontSize * 0.6) or 0
     self.number:SetJustifyH("CENTER")
-    self.root:SetSize(slot + 2 * (2 + unitW), digitH + 4)
+    self.root:SetSize(slot + 2 * unitW, digitH + 4)
     self.number:SetPoint("CENTER", self.root, "CENTER", 0, -m.R * fontSize)
   else
     -- label: [ badge ] [ number ] yd -- the display is the number, left-aligned so only "yd"
@@ -229,9 +230,9 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale)
     self.badgeGap = gap
     self.number:SetText("88")
     local slot = self.number:GetStringWidth() or fontSize
-    local unitW = self.unit:GetStringWidth() or fontSize * 0.6
+    local unitW = self.showUnit and 2 + (self.unit:GetStringWidth() or fontSize * 0.6) or 0
     self.number:SetJustifyH("LEFT")
-    self.root:SetSize(slot + 2 + unitW, digitH + 4)
+    self.root:SetSize(slot + unitW, digitH + 4)
     self.number:SetPoint("LEFT", self.root, "LEFT", 0, -m.R * fontSize)
     self.badge:SetPoint("RIGHT", self.root, "LEFT", -gap, 0)
   end
@@ -330,7 +331,7 @@ function Tape:SetNoData(on)
   self.noData = on
   self.root:SetAlpha(on and 0.5 or 1)
   self.ruler:SetShown(not on)
-  self.unit:SetShown(not on and self.showNumber)
+  self.unit:SetShown(not on and self.showUnit)
   if on then
     local c = Tape.COLORS.far
     self.number:SetText(self.showBadge and "" or "no data")
