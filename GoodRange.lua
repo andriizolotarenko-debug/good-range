@@ -309,7 +309,7 @@ end
 local FRIEND_ONLY = { { 0, math.huge, "far", "FRIENDLY" } }
 
 -- The zones from what you can use right now (form, rage / mana, cooldowns, weapon, combat)
--- against an enemy or a friend (unit: whose heal / buff reach to check).
+-- against an enemy or a friend (unit: whose heal / buff reach to check; nil: any you can help).
 -- auto: as Auto gives them, without the ranges set in Settings > Zones
 local function zonesFor(hostile, unit, auto)
   local ctx = {
@@ -319,16 +319,17 @@ local function zonesFor(hostile, unit, auto)
     mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
     primaryRole = RETAIL and API.SpecRole() or nil,
   }
-  if not hostile and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
+  if not hostile and unit and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
-  if hostile and db and not auto and not db.zones.auto then new = ns.Zones.fromList(db.zones.list) end
+  local own = db and not auto and not db.zones.auto and db.zones[hostile and "list" or "friendly"]
+  if own then new = ns.Zones.fromList(own) end
   return new, diag, ctx
 end
 
--- What Auto gives on enemies right now (your class, spec, spells and talents, form), as the
--- zones in a row (see Zones.partition)
-function ns.AutoZones()
-  return ns.Zones.partition((zonesFor(true, "target", true)))
+-- What Auto gives right now (your class, spec, spells and talents, form) on enemies, or on
+-- friendly targets you can heal or buff, as the zones in a row (see Zones.partition)
+function ns.AutoZones(friendly)
+  return ns.Zones.partition((zonesFor(not friendly, nil, true)), friendly)
 end
 
 -- Rebuilds the target's zones; true if they changed.

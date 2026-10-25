@@ -430,25 +430,36 @@ local function build()
   page.height = -y + 12
 
   -- the Zones page: Auto (zones and colours from your class and spells), or your own zones on
-  -- one bar and their colours; everything but Auto is off while it is on
+  -- one bar (for enemies or for friendly targets) and their colours; everything but Auto is off
+  -- while it is on
   page = pages.zones
   local Zones = ns.Zones
   local MAX = Zones.SET_MAX
   local zy = y0 - 42
-  local autoList, autoKey   -- what Auto gives now, and a key to notice when that changes
+  local side = "enemy"   -- the targets the bar is for: "enemy" or "friendly"
+  local OWN = { enemy = "list", friendly = "friendly" }   -- where db.zones keeps your own
+  local autoLists, autoKey   -- what Auto gives now on each side, and a key to notice a change
   local function readAuto()
-    autoList = ns.AutoZones()
+    autoLists = { enemy = ns.AutoZones(), friendly = ns.AutoZones(true) }
     local parts = {}
-    for _, z in ipairs(autoList) do parts[#parts + 1] = z.kind .. z.to .. tostring(z.show) end
+    for _, list in pairs(autoLists) do
+      for _, z in ipairs(list) do parts[#parts + 1] = z.kind .. z.to .. tostring(z.show) end
+    end
     local key = table.concat(parts, ";")
     local changed = key ~= autoKey
     autoKey = key
     return changed
   end
+  -- your own zones on this side (settings from before the friendly bar start from Auto)
+  local function ownList()
+    local key = OWN[side]
+    db.zones[key] = db.zones[key] or ns.AutoZones(side == "friendly")
+    return db.zones[key]
+  end
   local function zoneList()
-    if not db.zones.auto then return db.zones.list end
-    if not autoList then readAuto() end
-    return autoList
+    if not db.zones.auto then return ownList() end
+    if not autoLists then readAuto() end
+    return autoLists[side]
   end
   -- zone i's start, end
   local function span(list, i) return i > 1 and list[i - 1].to or 0, list[i].to end
@@ -457,7 +468,10 @@ local function build()
   controls[#controls + 1] = checkbox(page, "Auto", LX - 2, zy,
     function() return db.zones.auto end,
     function(v)
-      if not v then db.zones.list = ns.AutoZones() end   -- your own starts from what Auto gives now
+      if not v then
+        -- your own start from what Auto gives now
+        db.zones.list, db.zones.friendly = ns.AutoZones(), ns.AutoZones(true)
+      end
       db.zones.auto = v
       ns.ApplyLayout()
       ns.OnZonesChanged()
@@ -469,12 +483,28 @@ local function build()
   note:SetPoint("TOPLEFT", LX + 80, zy - 2)
   note:SetWidth(W - 2 * LX - 80)
   note:SetJustifyH("LEFT")
-  note:SetText("Your zones count on enemies; heals and buffs on friendly targets always come from your "
-    .. "spells. Drag a marker on the bar to move where the zone of its colour begins.")
+  note:SetText("Enemy and Friendly: your zones on enemies and on friendly players you can heal or "
+    .. "buff. Drag a marker on the bar to move where the zone of its colour begins.")
+
+  -- which targets the bar is for
+  zy = zy - 40
+  local sides = {}
+  for i, t in ipairs({ { "enemy", "Enemy" }, { "friendly", "Friendly" } }) do
+    local b = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    b:SetSize(90, 20)
+    b:SetPoint("TOPLEFT", LX + 4 + (i - 1) * 94, zy)
+    b:SetText(t[2])
+    b:SetScript("OnClick", function()
+      side = t[1]
+      drawZones()
+    end)
+    b.side = t[1]
+    sides[i] = b
+  end
 
   -- the bar: 0 to MAX yd in the zones' colours, a marker where each zone begins (in its colour)
   -- with its yards above, a ruler below
-  zy = zy - 44
+  zy = zy - 30
   local BW = W - 2 * LX - 30
   local function px(v) return v / MAX * BW end
   local bar = CreateFrame("Frame", nil, page)
@@ -523,6 +553,10 @@ local function build()
       from = math.max(from, to)
     end
     for j, m in ipairs(marks) do
+      m.edge:SetShown(list[j] ~= nil)
+      m.fill:SetShown(list[j] ~= nil)
+      m.value:SetShown(list[j] ~= nil)
+      if not list[j] then break end
       local v, c = list[j].to, color(list[j + 1])
       m.fill:SetColorTexture(c[1], c[2], c[3], 1)
       m.edge:SetPoint("CENTER", bar, "TOPLEFT", px(v), -22)
@@ -532,6 +566,9 @@ local function build()
       m.value:SetShown(not (list[j + 1] and list[j + 1].to == v))   -- one number per place
     end
     bar:SetAlpha(db.zones.auto and 0.5 or 1)
+    for _, b in ipairs(sides) do
+      if b.side == side then b:LockHighlight() else b:UnlockHighlight() end
+    end
   end
 
   -- dragging: the marker nearest the cursor; of several at one place, the one that can go the
@@ -544,16 +581,16 @@ local function build()
   bar:EnableMouse(true)
   bar:SetScript("OnMouseDown", function(_, button)
     if button ~= "LeftButton" or db.zones.auto then return end
-    local list = db.zones.list
+    local list = ownList()
     local x = px(cursorYd())
     local best, bestD
-    for j = 1, #marks do
+    for j = 1, #list do
       local d = math.abs(px(list[j].to) - x)
       if not bestD or d < bestD then best, bestD = j, d end
     end
-    if bestD > 12 then return end
+    if not bestD or bestD > 12 then return end
     local tied = {}
-    for j = 1, #marks do
+    for j = 1, #list do
       if list[j].to == list[best].to then tied[#tied + 1] = j end
     end
     drag = { at = list[best].to, tied = tied, j = #tied == 1 and best or nil }
@@ -563,7 +600,7 @@ local function build()
   local wait = 0
   bar:SetScript("OnUpdate", function(_, elapsed)
     if drag and not db.zones.auto then
-      local list, v = db.zones.list, cursorYd()
+      local list, v = ownList(), cursorYd()
       if not drag.j then
         if v == drag.at then return end
         drag.j = v > drag.at and drag.tied[#drag.tied] or drag.tied[1]
@@ -636,7 +673,7 @@ local function build()
     row.yards:SetPoint("LEFT", sw, "RIGHT", 112, 0)
     if kind ~= "far" then
       local function at()
-        for k, z in ipairs(db.zones.list) do
+        for k, z in ipairs(ownList()) do
           if z.kind == kind then return k, z end
         end
       end
@@ -651,8 +688,9 @@ local function build()
         end,
         function(v)
           local k, z = at()
+          if not z then return end
           z.show = v
-          if v then Zones.widen(db.zones.list, k) end
+          if v then Zones.widen(ownList(), k) end
           drawZones()
           ns.OnZonesChanged()
         end,
@@ -672,17 +710,18 @@ local function build()
       row.swatch:EnableMouse(not auto)
       row.swatch:SetAlpha(auto and 0.5 or 1)
       row.name:SetFontObject(auto and "GameFontDisable" or "GameFontNormal")
-      local text = ("%d+ yd"):format(list[#list].to)
+      local text, here = ("%d+ yd"):format(list[#list] and list[#list].to or 0), false
       for k, z in ipairs(list) do
         if z.kind == row.kind then
           local from, to = span(list, k)
-          text = to > from and ("%d-%d yd"):format(from, to) or "none"
+          text, here = to > from and ("%d-%d yd"):format(from, to) or "none", true
         end
       end
+      if row.kind ~= "far" and not here then text = "-" end   -- not a zone on this side
       row.yards:SetText(text)
       if row.show then
         row.show:Refresh()
-        row.show:SetActive(not auto)
+        row.show:SetActive(not auto and here)
       end
     end
   end

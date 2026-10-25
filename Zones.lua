@@ -198,8 +198,9 @@ function Zones.build(ctx)
   return out, diag
 end
 
--- Your own zones on enemies (Settings > Zones): the zones in a row from 0 yd, as
--- { { kind, to, show, label }, ... } with one entry per kind (primary, secondary, dead). A zone
+-- Your own zones (Settings > Zones): the zones in a row from 0 yd, as
+-- { { kind, to, show, label }, ... } with one entry per kind (primary, secondary, dead on
+-- enemies; primary, your heals or buffs, on friendly targets). A zone
 -- runs from the previous one's end to its own; out of range starts where the last one ends. A zone
 -- with show off keeps its place and its badge but is drawn grey, like out of range.
 Zones.SET_MAX = 50   -- the furthest a zone you set can end
@@ -208,7 +209,8 @@ local KINDS = { "primary", "secondary", "dead" }
 
 -- The list for what spans give now (Auto, as the start of your own). Every kind is in it: one
 -- spans don't give is empty and off (the dead zone right after the first zone, others last).
-function Zones.partition(spans)
+-- friendly: the spans are for a friendly target.
+function Zones.partition(spans, friendly)
   local edges = { 0 }
   for _, s in ipairs(spans) do
     edges[#edges + 1] = math.min(s[1], Zones.SET_MAX)
@@ -232,9 +234,9 @@ function Zones.partition(spans)
   end
   local reach = list[#list] and list[#list].to or 0
   local first = list[1] and list[1].label
-  for _, kind in ipairs(KINDS) do
+  for _, kind in ipairs(friendly and { "primary" } or KINDS) do
     if not seen[kind] then
-      local label = kind == "dead" and "DEAD ZONE"
+      local label = kind == "dead" and "DEAD ZONE" or friendly and "BUFF"
         or (first ~= "MELEE" and kind == "secondary" and "MELEE" or "RANGED")
       local z = { kind = kind, to = reach, show = false, label = label }
       if kind == "dead" and list[1] then

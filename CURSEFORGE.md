@@ -107,7 +107,7 @@ Click the minimap button or type `/goodrange` (`/gr`). The settings window is sm
 - Font: Changa Bold (included) or one of the game's fonts, with or without "yd" after the number
 - Show in combat, out of combat, on enemies, on friendly players
 - Nameplate attach with X / Y offsets
-- Zones: Auto by default (from your class, spec, spells and talents). Turn it off to set your own zones on enemies on one bar with a marker per zone, pick each zone's colour and hide the ones you don't want
+- Zones: Auto by default (from your class, spec, spells and talents). Turn it off to set your own zones, for enemies and for friendly targets, on one bar with a marker per zone, pick each zone's colour and hide the ones you don't want
 - Reset Defaults puts position, sizes, font, colours and zones back; Share with a friend copies or whispers the link
 - While the window is open the display shows a sample distance and can be dragged anywhere; closing the window locks it again
 
