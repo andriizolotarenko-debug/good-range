@@ -198,54 +198,86 @@ function Zones.build(ctx)
   return out, diag
 end
 
--- Your own zones on enemies (Settings > Zones). z: { primary = { auto, from, to },
--- secondary = { auto, from, to }, dead = { show, auto, from, to } }.
--- A zone not on Auto is the one range you set, in the place of the first span it replaces (so
--- melee keeps its priority); the dead zone off, or set by you, leaves no gap to fill with it.
-function Zones.custom(spans, z)
-  local out, done = {}, {}
+-- Your own zones on enemies (Settings > Zones): the zones in a row from 0 yd, as
+-- { { kind, to, show, label }, ... } with one entry per kind (primary, secondary, dead). A zone
+-- runs from the previous one's end to its own; out of range starts where the last one ends. A zone
+-- with show off keeps its place and its badge but is drawn grey, like out of range.
+Zones.SET_MAX = 50   -- the furthest a zone you set can end
+
+local KINDS = { "primary", "secondary", "dead" }
+
+-- The list for what spans give now (Auto, as the start of your own). Every kind is in it: one
+-- spans don't give is empty and off (the dead zone right after the first zone, others last).
+function Zones.partition(spans)
+  local edges = { 0 }
   for _, s in ipairs(spans) do
-    local c = z[s[3]]
-    if c and not c.auto then
-      if not done[s[3]] then
-        done[s[3]] = true
-        if c.to > c.from then out[#out + 1] = { c.from, c.to, s[3], s[4] } end
+    edges[#edges + 1] = math.min(s[1], Zones.SET_MAX)
+    edges[#edges + 1] = math.min(s[2], Zones.SET_MAX)
+  end
+  table.sort(edges)
+  local list, seen = {}, {}
+  for i = 2, #edges do
+    local a, b = edges[i - 1], edges[i]
+    if b > a then
+      local kind, label = Zones.at((a + b) / 2, spans)
+      if kind == "far" then break end
+      local last = list[#list]
+      if last and (last.kind == kind or seen[kind]) then
+        last.to = b   -- the same kind again: one zone per kind, so the one before takes it
+      else
+        seen[kind] = true
+        list[#list + 1] = { kind = kind, to = b, show = true, label = label }
       end
-    else
-      out[#out + 1] = s
     end
   end
-  for kind, tag in pairs({ primary = "RANGED", secondary = "MELEE" }) do
-    local c = z[kind]
-    if c and not c.auto and not done[kind] and c.to > c.from then
-      out[#out + 1] = { c.from, c.to, kind, tag }
+  local reach = list[#list] and list[#list].to or 0
+  local first = list[1] and list[1].label
+  for _, kind in ipairs(KINDS) do
+    if not seen[kind] then
+      local label = kind == "dead" and "DEAD ZONE"
+        or (first ~= "MELEE" and kind == "secondary" and "MELEE" or "RANGED")
+      local z = { kind = kind, to = reach, show = false, label = label }
+      if kind == "dead" and list[1] then
+        z.to = list[1].to
+        table.insert(list, 2, z)
+      else
+        list[#list + 1] = z
+      end
     end
   end
-  local d = z.dead
-  if d and (not d.show or not d.auto) then
-    out.noGap = true
-    if d.show and d.to > d.from then table.insert(out, 1, { d.from, d.to, "dead", "DEAD ZONE" }) end
+  return list
+end
+
+-- Spans for a list (see Zones.partition).
+function Zones.fromList(list)
+  local out, from = {}, 0
+  for _, z in ipairs(list) do
+    if z.to > from then out[#out + 1] = { from, z.to, z.show and z.kind or "far", z.label } end
+    from = math.max(from, z.to)
   end
   return out
 end
 
--- From, to of one kind in spans (nil if none): a zone's whole reach, or for "dead" the first gap
--- below the furthest one.
-function Zones.extent(spans, kind)
-  if kind == "dead" then
-    local list = {}
-    for _, s in ipairs(spans) do list[#list + 1] = { s[1], s[2] } end
-    local merged = Zones.merge(list)
-    if #merged > 1 then return merged[1][2], merged[2][1] end
-    return nil
+-- Gives an empty zone i some room (up to 3 yd) from the zone after it, or before it at the end.
+function Zones.widen(list, i)
+  local from = i > 1 and list[i - 1].to or 0
+  if list[i].to > from then return end
+  local up = Zones.SET_MAX
+  for k = i + 1, #list do
+    if list[k].to > from then up = list[k].to; break end
   end
-  local from, to
-  for _, s in ipairs(spans) do
-    if s[3] == kind then
-      from, to = math.min(from or s[1], s[1]), math.max(to or s[2], s[2])
-    end
+  local a = math.min(3, up - from)
+  if a > 0 then
+    list[i].to = from + a
+    for k = i + 1, #list do list[k].to = math.max(list[k].to, list[i].to) end
+    return
   end
-  return from, to
+  local down = 0
+  for k = i - 1, 1, -1 do
+    if list[k].to < from then down = list[k].to; break end
+  end
+  local start = from - math.min(3, from - down)
+  for k = 1, i - 1 do list[k].to = math.min(list[k].to, start) end
 end
 
 -- Sorted, merged copy of { {a, b}, ... }.
@@ -264,8 +296,7 @@ function Zones.merge(list)
 end
 
 -- d in yd -> kind, label. The first span that covers d wins (melee, then primary, then
--- secondary); a gap below your furthest reach is the dead zone (unless spans.noGap), beyond it
--- you are out of range.
+-- secondary); a gap below your furthest reach is the dead zone, beyond it you are out of range.
 function Zones.at(d, spans)
   local reach, hit = 0, nil
   for _, s in ipairs(spans) do
@@ -273,7 +304,7 @@ function Zones.at(d, spans)
     if not hit and d >= s[1] and d <= s[2] then hit = s end
   end
   if hit then return hit[3], hit[4] end
-  if d < reach and not spans.noGap then return "dead", "DEAD ZONE" end
+  if d < reach then return "dead", "DEAD ZONE" end
   return "far", "OUT OF RANGE"
 end
 

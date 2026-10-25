@@ -321,14 +321,14 @@ local function zonesFor(hostile, unit, auto)
   }
   if not hostile and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
-  if hostile and db and not auto then new = ns.Zones.custom(new, db.zones) end
+  if hostile and db and not auto and not db.zones.auto then new = ns.Zones.fromList(db.zones.list) end
   return new, diag, ctx
 end
 
--- What Auto gives on enemies right now (your class, spec, spells and talents, form): from, to
--- of one zone kind, or nil
-function ns.AutoRange(kind)
-  return ns.Zones.extent((zonesFor(true, "target", true)), kind)
+-- What Auto gives on enemies right now (your class, spec, spells and talents, form), as the
+-- zones in a row (see Zones.partition)
+function ns.AutoZones()
+  return ns.Zones.partition((zonesFor(true, "target", true)))
 end
 
 -- Rebuilds the target's zones; true if they changed.
@@ -337,7 +337,6 @@ local function refreshZones()
   ns.diag = { class = playerClass, form = ctx.form, mainTree = ctx.mainTree, spells = diag }
   local parts = {}
   for _, sp in ipairs(new) do parts[#parts + 1] = table.concat(sp, ",") end
-  if new.noGap then parts[#parts + 1] = "no gap" end
   local key = table.concat(parts, ";")
   if key == spanKey then return false end
   spans, spanKey = new, key
@@ -494,7 +493,7 @@ end
 
 function ns.ApplyLayout()
   if not db then return end
-  ns.Tape.SetColors(db.colors)
+  ns.Tape.SetColors(not db.zones.auto and db.colors or nil)   -- on Auto, the default colours
   tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100, db.showUnit)
   focusLabel:SetLayout(db.focusScale / 100, ns.DEFAULTS.font)
   ns.RefreshShown()
@@ -713,19 +712,11 @@ SlashCmdList.GOODRANGE = function(msg)
   end
 end
 
--- Settings > Zones: on Auto every zone comes from your spells, as before
-local ZONES = {
-  primary = { auto = true, from = 0, to = 30 },
-  secondary = { auto = true, from = 0, to = 5 },
-  dead = { show = true, auto = true, from = 5, to = 8 },
-}
+-- Settings > Zones: on Auto the zones and their colours come from your class and spells, as
+-- before; off, your own zones in a row (list, see Zones.partition) and colours
 local function zoneSettings(z)
-  z = z or {}
-  for kind, d in pairs(ZONES) do
-    z[kind] = z[kind] or {}
-    for k, v in pairs(d) do
-      if z[kind][k] == nil then z[kind][k] = v end
-    end
+  if type(z) ~= "table" or z.auto == nil or (not z.auto and type(z.list) ~= "table") then
+    return { auto = true }   -- also a test build's settings, one per zone
   end
   return z
 end
@@ -736,8 +727,7 @@ local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "pla
 function ns.ResetDefaults()
   db.pos, db.badgePos, db.focusPos = nil, nil, nil
   db.colors = {}
-  for _, z in pairs(db.zones) do wipe(z) end   -- in place: the settings window holds them
-  zoneSettings(db.zones)
+  db.zones = zoneSettings()
   for _, k in ipairs(RESET) do db[k] = ns.DEFAULTS[k] end
   ns.OnZonesChanged()
   ns.ApplyLayout()

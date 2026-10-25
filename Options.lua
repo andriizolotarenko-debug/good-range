@@ -34,27 +34,24 @@ local function checkbox(parent, text, x, y, get, set, tooltip)
     cb:SetScript("OnLeave", GameTooltip_Hide)
   end
   cb.Refresh = function(self) self:SetChecked(get()) end
+  cb.SetActive = function(self, on)
+    if on then self:Enable() else self:Disable() end
+    fs:SetFontObject(on and "GameFontHighlight" or "GameFontDisable")
+  end
   return cb
 end
 
 -- x, w: left edge and slider width (default: the full window width)
--- key: a setting in ns.db, or { get, set } for one kept elsewhere
 -- show(v): the value's text; apply(): what a change redraws (default: the layout)
 local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
   x, w = x or 12, w or W - 80
   show = show or function(v) return tostring(math.floor(v + 0.5)) end
   apply = apply or ns.ApplyLayout
-  local get, set
-  if type(key) == "table" then
-    get, set = key[1], key[2]
-  else
-    get, set = function() return ns.db[key] end, function(v) ns.db[key] = v end
-  end
   label(parent, text, x + 4, y)
   local function changed(v)
     v = math.floor(v / step + 0.5) * step
-    if get() ~= v then
-      set(v)
+    if ns.db[key] ~= v then
+      ns.db[key] = v
       apply()
     end
   end
@@ -66,9 +63,9 @@ local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
     local formatters = {
       [MinimalSliderWithSteppersMixin.Label.Right] = show,
     }
-    s:Init(get(), min, max, (max - min) / step, formatters)
+    s:Init(ns.db[key], min, max, (max - min) / step, formatters)
     s:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, v) changed(v) end, s)
-    s.Refresh = function(self) self:SetValue(get()) end
+    s.Refresh = function(self) self:SetValue(ns.db[key]) end
     return s
   end
   -- older clients: the classic options slider and a value label
@@ -90,7 +87,7 @@ local function slider(parent, text, y, key, min, max, step, x, w, show, apply)
     value:SetText(show(v))
     changed(v)
   end)
-  bar.Refresh = function(self) self:SetValue(get()); value:SetText(show(get())) end
+  bar.Refresh = function(self) self:SetValue(ns.db[key]); value:SetText(show(ns.db[key])) end
   return bar
 end
 
@@ -227,7 +224,7 @@ local function build()
     for n, t in pairs(tabs) do
       if n == name then t:LockHighlight() else t:UnlockHighlight() end
     end
-    for _, c in ipairs(controls) do c:Refresh() end   -- "Auto now" follows the target
+    for _, c in ipairs(controls) do c:Refresh() end   -- the Zones page reads what Auto gives now
   end
   for i, t in ipairs({ { "display", "Display" }, { "zones", "Zones" } }) do
     local pg = CreateFrame("Frame", nil, win)
@@ -432,108 +429,264 @@ local function build()
   y = y - 22 - 18
   page.height = -y + 12
 
-  -- the Zones page: per zone its colour, and on enemies a range of your own instead of the
-  -- one from your spells; the dead zone can be switched off
+  -- the Zones page: Auto (zones and colours from your class and spells), or your own zones on
+  -- one bar and their colours; everything but Auto is off while it is on
   page = pages.zones
+  local Zones = ns.Zones
+  local MAX = Zones.SET_MAX
   local zy = y0 - 42
-  label(page, "Zones", LX + 2, zy)
+  local autoList, autoKey   -- what Auto gives now, and a key to notice when that changes
+  local function readAuto()
+    autoList = ns.AutoZones()
+    local parts = {}
+    for _, z in ipairs(autoList) do parts[#parts + 1] = z.kind .. z.to .. tostring(z.show) end
+    local key = table.concat(parts, ";")
+    local changed = key ~= autoKey
+    autoKey = key
+    return changed
+  end
+  local function zoneList()
+    if not db.zones.auto then return db.zones.list end
+    if not autoList then readAuto() end
+    return autoList
+  end
+  -- zone i's start, end
+  local function span(list, i) return i > 1 and list[i - 1].to or 0, list[i].to end
+  local drawZones   -- redraws the bar and the colour rows
+
+  controls[#controls + 1] = checkbox(page, "Auto", LX - 2, zy,
+    function() return db.zones.auto end,
+    function(v)
+      if not v then db.zones.list = ns.AutoZones() end   -- your own starts from what Auto gives now
+      db.zones.auto = v
+      ns.ApplyLayout()
+      ns.OnZonesChanged()
+      drawZones()
+    end,
+    "On: the zones and their colours come from your class, spec, spells and talents, and change "
+      .. "with them. Off: your own zones and colours, starting from what Auto gives now.")
   local note = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  note:SetPoint("TOPLEFT", LX + 2, zy - 18)
-  note:SetWidth(W - 2 * LX)
+  note:SetPoint("TOPLEFT", LX + 80, zy - 2)
+  note:SetWidth(W - 2 * LX - 80)
   note:SetJustifyH("LEFT")
-  note:SetText("Auto: from your class, spec and spells. Ranges you set count on enemies; heals and buffs "
-    .. "on friendly targets always come from your spells.")
-  zy = zy - 46
-  local function swatch(kind, text, x, yy)
+  note:SetText("Your zones count on enemies; heals and buffs on friendly targets always come from your "
+    .. "spells. Drag a marker on the bar to move where the zone of its colour begins.")
+
+  -- the bar: 0 to MAX yd in the zones' colours, a marker where each zone begins (in its colour)
+  -- with its yards above, a ruler below
+  zy = zy - 44
+  local BW = W - 2 * LX - 30
+  local function px(v) return v / MAX * BW end
+  local bar = CreateFrame("Frame", nil, page)
+  bar:SetPoint("TOPLEFT", LX + 8, zy)
+  bar:SetSize(BW, 46)
+  local segs, marks = {}, {}
+  for i = 1, 4 do
+    segs[i] = bar:CreateTexture(nil, "ARTWORK")
+    segs[i]:SetHeight(12)
+  end
+  for j = 1, 3 do
+    -- a later marker draws over an earlier one at the same place
+    local m = {}
+    m.edge = bar:CreateTexture(nil, "OVERLAY", nil, 2 * j)
+    m.edge:SetSize(8, 22)
+    m.edge:SetColorTexture(0, 0, 0, 1)
+    m.fill = bar:CreateTexture(nil, "OVERLAY", nil, 2 * j + 1)
+    m.fill:SetSize(6, 20)
+    m.value = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    marks[j] = m
+  end
+  for v = 0, MAX, 5 do
+    local tick = bar:CreateTexture(nil, "BACKGROUND")
+    tick:SetColorTexture(0.6, 0.6, 0.6, 0.8)
+    tick:SetSize(1, 4)
+    tick:SetPoint("TOP", bar, "TOPLEFT", px(v), -29)
+    local fs = bar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    fs:SetPoint("TOP", bar, "TOPLEFT", px(v), -35)
+    fs:SetText(v == MAX and v .. " yd" or tostring(v))
+  end
+  local function drawBar()
+    local list, C = zoneList(), ns.Tape.COLORS
+    local function color(z) return z and z.show and C[z.kind] or C.far end
+    local from = 0
+    for i, seg in ipairs(segs) do
+      local to = list[i] and list[i].to or MAX
+      if to > from then
+        local c = color(list[i])
+        seg:SetColorTexture(c[1], c[2], c[3], 1)
+        seg:SetPoint("TOPLEFT", px(from), -16)
+        seg:SetWidth(px(to - from))
+        seg:Show()
+      else
+        seg:Hide()
+      end
+      from = math.max(from, to)
+    end
+    for j, m in ipairs(marks) do
+      local v, c = list[j].to, color(list[j + 1])
+      m.fill:SetColorTexture(c[1], c[2], c[3], 1)
+      m.edge:SetPoint("CENTER", bar, "TOPLEFT", px(v), -22)
+      m.fill:SetPoint("CENTER", bar, "TOPLEFT", px(v), -22)
+      m.value:SetPoint("BOTTOM", bar, "TOPLEFT", px(v), -10)
+      m.value:SetText(v)
+      m.value:SetShown(not (list[j + 1] and list[j + 1].to == v))   -- one number per place
+    end
+    bar:SetAlpha(db.zones.auto and 0.5 or 1)
+  end
+
+  -- dragging: the marker nearest the cursor; of several at one place, the one that can go the
+  -- way the cursor moves
+  local drag
+  local function cursorYd()
+    local x = GetCursorPosition() / bar:GetEffectiveScale() - (bar:GetLeft() or 0)
+    return math.floor(x / BW * MAX + 0.5)
+  end
+  bar:EnableMouse(true)
+  bar:SetScript("OnMouseDown", function(_, button)
+    if button ~= "LeftButton" or db.zones.auto then return end
+    local list = db.zones.list
+    local x = px(cursorYd())
+    local best, bestD
+    for j = 1, #marks do
+      local d = math.abs(px(list[j].to) - x)
+      if not bestD or d < bestD then best, bestD = j, d end
+    end
+    if bestD > 12 then return end
+    local tied = {}
+    for j = 1, #marks do
+      if list[j].to == list[best].to then tied[#tied + 1] = j end
+    end
+    drag = { at = list[best].to, tied = tied, j = #tied == 1 and best or nil }
+  end)
+  bar:SetScript("OnMouseUp", function() drag = nil end)
+  bar:SetScript("OnHide", function() drag = nil end)
+  local wait = 0
+  bar:SetScript("OnUpdate", function(_, elapsed)
+    if drag and not db.zones.auto then
+      local list, v = db.zones.list, cursorYd()
+      if not drag.j then
+        if v == drag.at then return end
+        drag.j = v > drag.at and drag.tied[#drag.tied] or drag.tied[1]
+      end
+      local j = drag.j
+      v = math.max(span(list, j), math.min(list[j + 1] and list[j + 1].to or MAX, v))
+      if v ~= list[j].to then
+        list[j].to = v
+        drawZones()
+        ns.OnZonesChanged()
+      end
+    elseif db.zones.auto then
+      -- Auto follows your form, rage and cooldowns: keep the bar up to date
+      wait = wait + elapsed
+      if wait > 0.5 then
+        wait = 0
+        if readAuto() then drawZones() end
+      end
+    end
+  end)
+  bar:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText("Zones", 1, 1, 1)
+    GameTooltip:AddLine(db.zones.auto and "What Auto gives now. Turn Auto off to set your own."
+      or "Drag a marker to move where the zone of its colour begins.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  bar:SetScript("OnLeave", GameTooltip_Hide)
+
+  -- colours: each zone's colour, its yards, and Show (off: drawn grey, like out of range)
+  zy = zy - 60
+  label(page, "Colours", LX + 2, zy)
+  zy = zy - 22
+  local rows = {}
+  local NAMES = { primary = "Your range", secondary = "Other range", dead = "Dead zone", far = "Out of range" }
+  for i, kind in ipairs({ "primary", "secondary", "dead", "far" }) do
+    local x, cy = (i % 2 == 1 and LX or RX) + 2, zy - math.floor((i - 1) / 2) * 30
+    local row = {}
     local sw = CreateFrame("Button", nil, page)
     sw:SetSize(18, 18)
-    sw:SetPoint("TOPLEFT", x, yy)
+    sw:SetPoint("TOPLEFT", x, cy)
     local edge = sw:CreateTexture(nil, "BACKGROUND")
     edge:SetAllPoints()
     edge:SetColorTexture(0.8, 0.8, 0.8, 1)
-    local fill = sw:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", 1, -1)
-    fill:SetPoint("BOTTOMRIGHT", -1, 1)
-    fill:SetColorTexture(1, 1, 1, 1)
-    local fs = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    fs:SetPoint("LEFT", sw, "RIGHT", 6, 0)
-    fs:SetText(text)
-    sw.Refresh = function()
-      local c = ns.Tape.COLORS[kind]
-      fill:SetVertexColor(c[1], c[2], c[3])
-    end
+    row.fill = sw:CreateTexture(nil, "ARTWORK")
+    row.fill:SetPoint("TOPLEFT", 1, -1)
+    row.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+    row.fill:SetColorTexture(1, 1, 1, 1)
     sw:SetScript("OnClick", function()
       pickColor(ns.Tape.COLORS[kind], function(r, g, b)
         db.colors[kind] = { r, g, b }
         ns.ApplyLayout()
-        showMode()
-        sw:Refresh()
+        drawZones()
       end)
     end)
     sw:SetScript("OnEnter", function(self)
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
       GameTooltip:SetText("Click to pick the colour", 1, 1, 1)
+      if kind == "far" then
+        GameTooltip:AddLine("Also friendly players you can't heal or buff.", nil, nil, nil, true)
+      end
       GameTooltip:Show()
     end)
     sw:SetScript("OnLeave", GameTooltip_Hide)
-    controls[#controls + 1] = sw
-  end
-  local function yards(v) return math.floor(v + 0.5) .. " yd" end
-  -- one zone: its colour, Auto (and Show for the dead zone), and From / To while not on Auto
-  local function zoneRow(kind, text, canHide)
-    local z = db.zones[kind]
-    swatch(kind, text, LX + 2, zy)
-    local range = CreateFrame("Frame", nil, page)
-    range:SetAllPoints()
-    local function showRange() range:SetShown(not z.auto and z.show ~= false) end
-    local function changed() showRange(); ns.OnZonesChanged() end
-    local x = LX + 2 + 150
-    if canHide then
-      controls[#controls + 1] = checkbox(page, "Show", x, zy + 3,
-        function() return z.show end, function(v) z.show = v; changed() end,
-        "Off: no dead zone; a gap below your furthest reach reads out of range.")
-      x = x + 90
-    end
-    -- what Auto gives now; turning Auto off starts the sliders there
-    local now = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    now:SetPoint("TOPLEFT", x + 80, zy - 2)
-    local function showNow()
-      local from, to = ns.AutoRange(kind)
-      now:SetText(from and ("Auto now: %g-%g yd"):format(from, to) or "Auto now: none")
-    end
-    local auto = checkbox(page, "Auto", x, zy + 3,
-      function() return z.auto end,
-      function(v)
-        z.auto = v
-        local from, to = ns.AutoRange(kind)
-        if not v and from then
-          z.from, z.to = math.min(45, math.floor(from + 0.5)), math.min(45, math.floor(to + 0.5))
-          for _, s in ipairs(range.sliders) do s:Refresh() end
+    row.swatch = sw
+    row.name = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    row.name:SetPoint("LEFT", sw, "RIGHT", 6, 0)
+    row.name:SetText(NAMES[kind])
+    row.yards = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.yards:SetPoint("LEFT", sw, "RIGHT", 112, 0)
+    if kind ~= "far" then
+      local function at()
+        for k, z in ipairs(db.zones.list) do
+          if z.kind == kind then return k, z end
         end
-        changed()
-      end,
-      "On: from your class, spec, spells and talents. Off: the range you set below, starting from "
-        .. "what Auto gives now.")
-    controls[#controls + 1] = auto
-    controls[#controls + 1] = { Refresh = function() showRange(); showNow() end }
-    range.sliders = {}
-    zy = zy - 26
-    for i, edge in ipairs({ "from", "to" }) do
-      range.sliders[i] = slider(range, i == 1 and "From" or "To", zy, {
-        function() return z[edge] end, function(v) z[edge] = v end,
-      }, 0, 45, 1, (i == 1 and LX or RX) - 2, COL - 50, yards, ns.OnZonesChanged)
-      controls[#controls + 1] = range.sliders[i]
+      end
+      row.show = checkbox(page, "Show", x + 190, cy + 3,
+        function()
+          for k, z in ipairs(zoneList()) do
+            if z.kind == kind then
+              local from, to = span(zoneList(), k)
+              return z.show and to > from
+            end
+          end
+        end,
+        function(v)
+          local k, z = at()
+          z.show = v
+          if v then Zones.widen(db.zones.list, k) end
+          drawZones()
+          ns.OnZonesChanged()
+        end,
+        "Off: the zone keeps its place and its label, drawn grey like out of range.")
     end
-    zy = zy - 50
+    row.kind = kind
+    rows[#rows + 1] = row
   end
-  zoneRow("primary", "Your range")
-  zoneRow("secondary", "Other range")
-  zoneRow("dead", "Dead zone", true)
-  swatch("far", "Out of range", LX + 2, zy)
-  local farNote = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  farNote:SetPoint("TOPLEFT", LX + 2 + 150, zy - 3)
-  farNote:SetText("Beyond everything, and friendly players you can't heal or buff.")
-  zy = zy - 34
+  zy = zy - 60
+
+  drawZones = function()
+    drawBar()
+    local list, auto = zoneList(), db.zones.auto
+    for _, row in ipairs(rows) do
+      local c = ns.Tape.COLORS[row.kind]
+      row.fill:SetVertexColor(c[1], c[2], c[3])
+      row.swatch:EnableMouse(not auto)
+      row.swatch:SetAlpha(auto and 0.5 or 1)
+      row.name:SetFontObject(auto and "GameFontDisable" or "GameFontNormal")
+      local text = ("%d+ yd"):format(list[#list].to)
+      for k, z in ipairs(list) do
+        if z.kind == row.kind then
+          local from, to = span(list, k)
+          text = to > from and ("%d-%d yd"):format(from, to) or "none"
+        end
+      end
+      row.yards:SetText(text)
+      if row.show then
+        row.show:Refresh()
+        row.show:SetActive(not auto)
+      end
+    end
+  end
+  controls[#controls + 1] = { Refresh = function() readAuto(); drawZones() end }
   page.height = -zy + 12
 
   -- the display is unlocked exactly while this window is open
