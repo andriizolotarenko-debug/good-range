@@ -79,7 +79,8 @@ end
 -- name: global frame name (nil for previews). A display on UIParent gets its own strata;
 -- one inside another frame (the settings previews) draws with that frame.
 function Tape.New(parent, name)
-  local self = setmetatable({ ticks = {}, plate = {} }, Tape)
+  -- tickH: each tick's height as last set (0 hidden), so a restyle only touches what changed
+  local self = setmetatable({ ticks = {}, tickH = {}, plate = {} }, Tape)
   local root = CreateFrame("Frame", name, parent)
   if parent == UIParent then root:SetFrameStrata("MEDIUM") end
   self.root = root
@@ -104,6 +105,7 @@ function Tape.New(parent, name)
     return t
   end
   self.capL, self.mid, self.capR = slice(0, 0.25), slice(0.25, 0.75), slice(0.75, 1)
+  self.caps = { self.capL, self.mid, self.capR }
   self.capL:SetPoint("TOPLEFT")
   self.capL:SetPoint("BOTTOMLEFT")
   self.capR:SetPoint("TOPRIGHT")
@@ -283,6 +285,8 @@ function Tape:SetLayout(width, height, fontSize, ppy, font, style, badgeScale, s
     end
     t:ClearAllPoints()
     t:SetPoint("BOTTOM", self.ruler, "TOPLEFT", (i - 1) * step, -self.base)
+    t:Hide()
+    self.tickH[i] = 0
   end
   for i = need + 1, #self.ticks do self.ticks[i]:Hide() end
 
@@ -307,20 +311,27 @@ end
 -- the tape at v.
 function Tape:Restyle(first, v)
   self.first = first
-  local colors, zoneAt, k = Tape.COLORS, self.zoneAt, self.k
+  local colors, zoneAt, k, tickH = Tape.COLORS, self.zoneAt, self.k, self.tickH
   local cx, ppy, div = self.width / 2, self.ppy, self.div
   for n = 1, self.count do
     local i = first + n - 1
     local tick = self.ticks[n]
     local f = fade(cx + (i / div - v) * ppy, cx)
     if i < 0 or f <= 0.01 then
-      tick:Hide()
+      if tickH[n] ~= 0 then
+        tick:Hide()
+        tickH[n] = 0
+      end
     else
       local major, halfTick = i % div == 0, 2 * i % div == 0
       local c = colors[zoneAt(i / div)]
-      tick:SetSize(2, (major and 20 or halfTick and 12 or 6) * k)
+      local h = (major and 20 or halfTick and 12 or 6) * k
+      if tickH[n] ~= h then
+        if tickH[n] == 0 then tick:Show() end
+        tick:SetSize(2, h)
+        tickH[n] = h
+      end
       tick:SetVertexColor(c[1], c[2], c[3], f * (major and 1 or halfTick and 0.9 or 0.75))
-      tick:Show()
     end
   end
 end
@@ -338,7 +349,7 @@ function Tape:SetNoData(on)
     self.number:SetTextColor(c[1], c[2], c[3])
     if self.showBadge then
       self.badgeText:SetText("NO DATA")
-      for _, t in ipairs({ self.capL, self.mid, self.capR }) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
+      for _, t in ipairs(self.caps) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
     end
   end
   self.first, self.drawn, self.text, self.zone = nil, nil, nil, nil   -- redraw in full once data is back
@@ -371,7 +382,7 @@ function Tape:Draw(v, label)
     self.unit:SetTextColor(c[1], c[2], c[3])
     if self.showBadge then
       self.badgeText:SetText(badge)
-      for _, t in ipairs({ self.capL, self.mid, self.capR }) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
+      for _, t in ipairs(self.caps) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
     end
   end
 end

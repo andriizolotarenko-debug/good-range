@@ -5,8 +5,9 @@ local _, ns = ...
 
 local issecret = issecretvalue or function() return false end
 local API = ns.API
--- ~30 ticks a second: each checks only the two steps around the distance (see measure), so a
--- crossing is timed to a tick; the display carries the estimate on between ticks.
+-- ~30 ticks a second (10 while nobody moves, see IDLE_TICK): each checks only the two steps
+-- around the distance (see measure), so a crossing is timed to a tick; the display carries the
+-- estimate on between ticks.
 local TICK = 0.03
 local MELEE = ns.Zones.MELEE
 local Estimator = ns.Estimator
@@ -18,6 +19,8 @@ local MAX_STEP = 100
 -- modern one; each falls back on the other, and only items the client knows are used.
 local interface = select(4, GetBuildInfo())
 local CLASSIC_RULES = interface < 20000
+local RETAIL = interface >= 100000
+local _, playerClass = UnitClass("player")
 
 local function itemLists(a, b)
   local out = {}
@@ -76,6 +79,7 @@ local INTERACT_RACE = { Tauren = { [3] = 6, [4] = 25 }, Scourge = { [3] = 7, [4]
 
 local function build()
   wipe(groups)
+  API.ForgetSpells()
   local harmItems = CLASSIC_RULES and itemLists(ns.ERA_HARM_ITEMS, ns.HARM_ITEMS)
     or itemLists(ns.HARM_ITEMS, ns.ERA_HARM_ITEMS)
   local friendItems = CLASSIC_RULES and itemLists(ns.ERA_FRIEND_ITEMS, ns.FRIEND_ITEMS)
@@ -114,6 +118,9 @@ local function build()
   spellbook.known = known
   spellbook.generic = { harm = ns.Zones.merge(harmWork), help = ns.Zones.merge(helpWork) }
   spellbook.helpIds = helpIds
+  -- talents and spec change only with the spells (a rebuild); the form is read each time
+  spellbook.mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil
+  spellbook.role = RETAIL and API.SpecRole() or nil
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -133,7 +140,8 @@ local function rebuildSoon()
   C_Timer.After(1, function() rebuildPending = false; build() end)
 end
 
--- true / false / nil (unknown) for one range step, and what gave the answer (for /gr list).
+-- true / false / nil (unknown) for one range step, and what gave the answer and its ID (for /gr
+-- list; no strings are built here, it runs many times a second).
 local check
 
 -- Is an enemy within max yd by any step above g? (Out of a min-range spell's range can be either
@@ -155,9 +163,9 @@ function check(g, unit, hostile, restricted)
       if issecret(v) then
         secrets.spell = secrets.spell + 1
       elseif v == true then
-        return false, "min " .. m[1]
+        return false, "min", m[1]
       elseif v == false and within(g, m[2], unit, restricted) then
-        return true, "min- " .. m[1]
+        return true, "min-", m[1]
       end
     end
   end
@@ -182,7 +190,7 @@ function check(g, unit, hostile, restricted)
     if issecret(v) then
       secrets.spell = secrets.spell + 1
     elseif v ~= nil then
-      return v, (v and "spell " or "spell- ") .. id
+      return v, v and "spell" or "spell-", id
     end
   end
   return nil
@@ -194,6 +202,7 @@ local function newTracker(unit)
   return { unit = unit, est = Estimator.new(), res = {}, lastLo = 0 }
 end
 local T, F = newTracker("target"), newTracker("focus")
+local ticking = { T, F }
 
 -- lo: the largest step reported out (below hi), hi: the smallest step reported in.
 local function scan(tr, hostile, restricted, from, to)
@@ -201,9 +210,9 @@ local function scan(tr, hostile, restricted, from, to)
   local res = tr.res
   for i = from, to do
     local g = groups[i]
-    local r, why = check(g, tr.unit, hostile, restricted)
+    local r, why, id = check(g, tr.unit, hostile, restricted)
     res[i] = r
-    if tr == T then g.result, g.last = r, why end   -- what /gr list shows
+    if tr == T then g.result, g.last, g.lastId = r, why, id end   -- what /gr list shows
     if r == true and not hi then hi, hiI = g.range, i end
   end
   local lo, loI = 0, nil
@@ -220,6 +229,11 @@ end
 -- new target, and whenever the answer could lie outside that window. No scan comes sooner than
 -- SCAN_MIN s after the last one, so steps that give no answer can't make it scan every frame.
 local WINDOW_EVERY, FULL_EVERY, SCAN_MIN = 0.2, 0.5, 0.05
+-- While you and every unit followed stand still (see the driver), no step can be crossed: the
+-- range is checked every IDLE_TICK s then, and the steps around it scanned IDLE_SLOW times as
+-- rarely.
+local IDLE_TICK, IDLE_SLOW = 0.1, 4
+local idle = false
 
 -- tr: the tracker to forget, or nil for both (the steps changed)
 function ns.ForgetBracket(tr)
@@ -245,7 +259,7 @@ local function rescan(tr, hostile, restricted, now)
   end
   lo, hi, loI, hiI = scan(tr, hostile, restricted, 1, n)
   tr.loIdx, tr.hiIdx = loI, hiI
-  tr.nextFull = now + FULL_EVERY
+  tr.nextFull = now + FULL_EVERY * (idle and IDLE_SLOW or 1)
   return lo, hi
 end
 
@@ -258,7 +272,7 @@ local function measure(tr, hostile, now)
     return tr.lastLo, tr.lastHi   -- both edges as they were
   end
   if now - tr.lastScan < SCAN_MIN then return tr.lastLo, tr.lastHi end
-  tr.lastScan, tr.nextWindow = now, now + WINDOW_EVERY
+  tr.lastScan, tr.nextWindow = now, now + WINDOW_EVERY * (idle and IDLE_SLOW or 1)
   tr.lastLo, tr.lastHi = rescan(tr, hostile, restricted, now)
   return tr.lastLo, tr.lastHi
 end
@@ -284,8 +298,6 @@ end
 
 local hostileTarget = true
 
-local _, playerClass = UnitClass("player")
-local RETAIL = interface >= 100000
 
 -- Can one of your heals or buffs go on this unit? (A spell that can't target it, like Mend Pet
 -- on a player, gives no range answer at all.) Checked once per target / focus.
@@ -311,14 +323,11 @@ local FRIEND_ONLY = { { 0, math.huge, "far", "FRIENDLY" } }
 -- The zones from what you can use right now (form, rage / mana, cooldowns, weapon, combat)
 -- against an enemy or a friend (unit: whose heal / buff reach to check; nil: any you can help).
 -- auto: as Auto gives them, without the ranges set in Settings > Zones
+local ctx = { class = playerClass, getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady }
 local function zonesFor(hostile, unit, auto)
-  local ctx = {
-    class = playerClass, hostile = hostile, known = spellbook.known, generic = spellbook.generic,
-    getInfo = API.GetSpellInfo, usable = API.IsUsable, ready = API.IsReady,
-    form = playerClass == "DRUID" and API.Form() or nil,
-    mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil,
-    primaryRole = RETAIL and API.SpecRole() or nil,
-  }
+  ctx.hostile, ctx.known, ctx.generic = hostile, spellbook.known, spellbook.generic
+  ctx.form = playerClass == "DRUID" and API.Form() or nil
+  ctx.mainTree, ctx.primaryRole = spellbook.mainTree, spellbook.role
   if not hostile and unit and not canHelp(unit) then return FRIEND_ONLY, {}, ctx end
   local new, diag = ns.Zones.build(ctx)
   local own = db and not auto and not db.zones.auto and db.zones[hostile and "list" or "friendly"]
@@ -334,8 +343,8 @@ end
 
 -- Rebuilds the target's zones; true if they changed.
 local function refreshZones()
-  local new, diag, ctx = zonesFor(hostileTarget, "target")
-  ns.diag = { class = playerClass, form = ctx.form, mainTree = ctx.mainTree, spells = diag }
+  local new, diag, c = zonesFor(hostileTarget, "target")
+  ns.diag = { class = playerClass, form = c.form, mainTree = c.mainTree, spells = diag }
   local parts = {}
   for _, sp in ipairs(new) do parts[#parts + 1] = table.concat(sp, ",") end
   local key = table.concat(parts, ";")
@@ -502,18 +511,22 @@ function ns.ApplyLayout()
   placeFocus()
 end
 
--- Tick: estimation at 20 Hz on a hidden driver frame -----------------------------------------
+-- Tick: estimation at ~30 Hz (10 Hz standing still) on a hidden driver frame -------------------
 
 local goal, goalLabel        -- what the tape slides towards (display units) and its label
 local goalRate, goalLo, goalHi, sinceTick = 0, 0, nil, 0   -- how goal moves on between ticks
 local noData = false         -- no range check answered (the game hides them, e.g. secret values)
 local shown                  -- what the tape shows now
 local acc, clock = 0, 0
-local ZONE_EVERY = 0.25    -- s between checks of what you can use (rage, form, cooldowns ...)
-local zoneClock = 0
-local focusSpans, focusHostile, focusZoneClock = {}, nil, 0
+-- What you can use (rage, form, cooldowns ...) is checked again when the game says it changed
+-- (zoneGen counts those events), at most every ZONE_EVERY s, and every ZONE_IDLE s in any case.
+local ZONE_EVERY, ZONE_IDLE = 0.25, 2
+local zoneGen = 0
+local zoneClock, zoneSeen = 0, -1
+local focusSpans, focusHostile, focusZoneClock, focusSeen = {}, nil, 0, -1
 
--- One tick of a tracker: its bracket, then its estimate. ps: your speed, px / py: your position.
+-- One tick of a tracker: its bracket, then its estimate. dt: the time moved since the last tick,
+-- ps: your speed, px / py: your position.
 local function follow(tr, hostile, dt, ps, px, py)
   local lo, hi = measure(tr, hostile, clock)
   local ts = speedOf(tr.unit)
@@ -531,16 +544,18 @@ local function follow(tr, hostile, dt, ps, px, py)
 end
 
 -- The focus: its own zones (it can be a friend while the target is an enemy) and the label.
-local function followFocus(dt, ps, px, py)
+-- dt: since the last tick, moveDt: moved since the last tick (see the driver)
+local function followFocus(dt, moveDt, ps, px, py)
   if not UnitExists("focus") or UnitIsDeadOrGhost("focus") then return end
   local hostile = UnitCanAttack("player", "focus")
   if issecret(hostile) then hostile = true end
   focusZoneClock = focusZoneClock + dt
-  if hostile ~= focusHostile or focusZoneClock >= ZONE_EVERY then
-    focusHostile, focusZoneClock = hostile, 0
+  if hostile ~= focusHostile
+      or focusZoneClock >= ZONE_EVERY and (focusSeen ~= zoneGen or focusZoneClock >= ZONE_IDLE) then
+    focusHostile, focusZoneClock, focusSeen = hostile, 0, zoneGen
     focusSpans = zonesFor(hostile, "focus")
   end
-  local lo, hi, b = follow(F, hostile, dt, ps, px, py)
+  local lo, hi, b = follow(F, hostile, moveDt, ps, px, py)
   if not hi and lo == 0 then
     focusLabel:SetNoData()
     return
@@ -551,14 +566,33 @@ local function followFocus(dt, ps, px, py)
   focusLabel:Set(text, (ns.Zones.at(d, focusSpans)))
 end
 
+-- Standing still (see IDLE_TICK), a speed check each frame wakes the ticks as soon as one moves.
+-- A hidden or unknown speed counts as moving.
+local function standing(unit)
+  local v = GetUnitSpeed(unit)
+  return v ~= nil and not issecret(v) and v == 0
+end
+
 local driver = CreateFrame("Frame")
 driver:Hide()
 driver:SetScript("OnUpdate", function(_, elapsed)
   acc = acc + elapsed
   if acc < TICK then return end
+  local wasIdle = idle
+  idle = standing("player") and (not targetOn or standing("target")) and (not focusOn or standing("focus"))
+  if wasIdle and idle and acc < IDLE_TICK then return end
   local dt = acc
   acc = 0
   clock = clock + dt
+  -- woken by a move: it began since the last speed check, not over the whole idle wait
+  local moveDt = wasIdle and not idle and math.min(dt, TICK) or dt
+  if wasIdle and not idle then
+    -- scan on the usual schedule again
+    for _, tr in ipairs(ticking) do
+      tr.nextWindow = math.min(tr.nextWindow, clock + WINDOW_EVERY)
+      tr.nextFull = math.min(tr.nextFull, clock + FULL_EVERY)
+    end
+  end
   local ps = speedOf("player")
   if ps == nil and IsPlayerMoving then
     -- the game hides speeds in dungeons: moving or not is enough to start and stop the estimate
@@ -566,21 +600,21 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if not issecret(m) then ps = m and Estimator.RUN or 0 end
   end
   local px, py = playerPos()
-  if focusOn then followFocus(dt, ps, px, py) end
+  if focusOn then followFocus(dt, moveDt, ps, px, py) end
 
   local unit = "target"
   if not targetOn or not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
   local hostile = UnitCanAttack("player", unit)
   if issecret(hostile) then hostile = true end
   zoneClock = zoneClock + dt
-  if hostile ~= hostileTarget or zoneClock >= ZONE_EVERY then
+  if hostile ~= hostileTarget or zoneClock >= ZONE_EVERY and (zoneSeen ~= zoneGen or zoneClock >= ZONE_IDLE) then
     hostileTarget = hostile
-    zoneClock = 0
+    zoneClock, zoneSeen = 0, zoneGen
     if refreshZones() then tape:SetZones(zoneAt) end
   end
 
   local was = goal
-  local lo, hi, b, crossed = follow(T, hostile, dt, ps, px, py)
+  local lo, hi, b, crossed = follow(T, hostile, moveDt, ps, px, py)
 
   -- nothing said in or out: "0+" would look like a reading, so say there is no data
   noData = not hi and lo == 0
@@ -691,7 +725,8 @@ local function printList()
     if g.interact then parts[#parts + 1] = "interact " .. g.interact end
     if #g.spells > 0 then parts[#parts + 1] = #g.spells .. " spells" end
     local r = g.result == true and "|cff4dff59in|r" or g.result == false and "|cffff4433out|r" or "-"
-    print(("  %3d yd  %s  %s  %s"):format(g.range, r, table.concat(parts, ", "), g.last or ""))
+    local why = g.last and (g.lastId and g.last .. " " .. g.lastId or g.last) or ""
+    print(("  %3d yd  %s  %s  %s"):format(g.range, r, table.concat(parts, ", "), why))
   end
 end
 
@@ -743,13 +778,23 @@ events:RegisterEvent("SPELLS_CHANGED")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
--- talents and gear can change spell ranges: rebuild the zones then
+-- talents and gear can change spell ranges: rebuild the zones then (and once the world is in,
+-- when the talents are surely known)
 for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
-                    "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_FOCUS_CHANGED" }) do
+                    "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_FOCUS_CHANGED",
+                    "SPELL_UPDATE_USABLE", "ACTIONBAR_UPDATE_USABLE", "SPELL_UPDATE_COOLDOWN",
+                    "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD" }) do
   pcall(events.RegisterEvent, events, e)   -- not every client has every event
 end
+-- what you can use may have changed: the zones are checked again on the next tick (see zoneGen)
+local USABLE = { SPELL_UPDATE_USABLE = true, ACTIONBAR_UPDATE_USABLE = true, SPELL_UPDATE_COOLDOWN = true,
+  UPDATE_SHAPESHIFT_FORM = true, PLAYER_REGEN_DISABLED = true, PLAYER_REGEN_ENABLED = true }
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:SetScript("OnEvent", function(_, event)
+  if USABLE[event] then
+    zoneGen = zoneGen + 1
+    if event ~= "PLAYER_REGEN_DISABLED" and event ~= "PLAYER_REGEN_ENABLED" then return end
+  end
   if event == "PLAYER_LOGIN" then
     GoodRangeDB = GoodRangeDB or {}
     db = GoodRangeDB

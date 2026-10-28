@@ -7,12 +7,26 @@ ns.API = API
 
 local OldGetSpellInfo = GetSpellInfo
 
+-- Spell info by ID, kept until the spells change (API.ForgetSpells): looking it up makes a new
+-- table each time, and range checks on the Classic clients look up the name on every check.
+local infoCache = {}
+
+function API.ForgetSpells()
+  wipe(infoCache)
+end
+
 -- { name, minRange, maxRange } or nil
 function API.GetSpellInfo(id)
-  if C_Spell and C_Spell.GetSpellInfo then return C_Spell.GetSpellInfo(id) end
-  local name, _, _, _, minRange, maxRange = OldGetSpellInfo(id)
-  if not name then return nil end
-  return { name = name, minRange = minRange, maxRange = maxRange }
+  local info = infoCache[id]
+  if info ~= nil then return info or nil end
+  if C_Spell and C_Spell.GetSpellInfo then
+    info = C_Spell.GetSpellInfo(id)
+  else
+    local name, _, _, _, minRange, maxRange = OldGetSpellInfo(id)
+    info = name and { name = name, minRange = minRange, maxRange = maxRange }
+  end
+  infoCache[id] = info or false
+  return info or nil
 end
 
 local function spellName(id)
@@ -139,9 +153,9 @@ function API.MainTree()
   if not (GetNumTalentTabs and GetTalentTabInfo) then return nil end
   local best, bestPoints = nil, 0
   for i = 1, GetNumTalentTabs() do
-    local r = { GetTalentTabInfo(i) }
     -- newer clients: id, name, description, icon, pointsSpent ...; older: name, icon, pointsSpent ...
-    local points = type(r[5]) == "number" and r[5] or type(r[3]) == "number" and r[3] or 0
+    local _, _, a, _, b = GetTalentTabInfo(i)
+    local points = type(b) == "number" and b or type(a) == "number" and a or 0
     if points > bestPoints then best, bestPoints = i, points end
   end
   return best
