@@ -36,7 +36,8 @@ end
 ns.DEFAULTS = {
   width = 130, height = 31, fontSize = 32, ppy = 20, display = "tape", badgeScale = 100,
   font = "Interface\\AddOns\\GoodRange\\media\\Changa-Bold.ttf",
-  inCombat = true, outOfCombat = true, friendly = true, enemy = true,
+  inCombat = true, outOfCombat = true, friendly = true, enemyPlayers = true, enemyNPCs = true,
+  mouseover = false, mouseoverScale = 100,
   unlocked = false, nameplate = false, plateX = 0, plateY = 2,
   focus = false, focusScale = 100, showUnit = true,
 }
@@ -121,6 +122,11 @@ local function build()
   -- talents and spec change only with the spells (a rebuild); the form is read each time
   spellbook.mainTree = (playerClass == "SHAMAN" or playerClass == "PALADIN") and API.MainTree() or nil
   spellbook.role = RETAIL and API.SpecRole() or nil
+  -- a new spec has its own zones (see ns.UseZones)
+  if db and ns.UseZones() then
+    ns.ApplyLayout()
+    if ns.RefreshOptions then ns.RefreshOptions() end
+  end
 
   for i = #groups, 1, -1 do
     local g = groups[i]
@@ -201,8 +207,8 @@ end
 local function newTracker(unit)
   return { unit = unit, est = Estimator.new(), res = {}, lastLo = 0 }
 end
-local T, F = newTracker("target"), newTracker("focus")
-local ticking = { T, F }
+local T, F, M = newTracker("target"), newTracker("focus"), newTracker("mouseover")
+local ticking = { T, F, M }
 
 -- lo: the largest step reported out (below hi), hi: the smallest step reported in.
 local function scan(tr, hostile, restricted, from, to)
@@ -237,7 +243,7 @@ local idle = false
 
 -- tr: the tracker to forget, or nil for both (the steps changed)
 function ns.ForgetBracket(tr)
-  for _, t in ipairs(tr and { tr } or { T, F }) do
+  for _, t in ipairs(tr and { tr } or ticking) do
     t.nextWindow, t.nextFull, t.lastScan, t.loIdx, t.hiIdx = 0, 0, -1, nil, nil
   end
 end
@@ -367,7 +373,7 @@ root:SetClampedToScreen(true)
 root:RegisterForDrag("LeftButton")
 local plate   -- the target's nameplate the display hangs over, if any (see place)
 local focusPlate   -- the focus's nameplate the focus label hangs over, if any (see placeFocus)
-local targetOn, focusOn = false, false   -- which units are followed (see RefreshShown)
+local targetOn, focusOn, mouseOn = false, false, false   -- which units are followed (see RefreshShown)
 -- After hanging on a nameplate, the game can hand the frame back no longer movable (Retail 12.x):
 -- make it movable again before each drag, and never let a refusal raise an error.
 local function drag(self)
@@ -469,6 +475,28 @@ focusRoot:SetScript("OnDragStop", function(self)
 end)
 focusRoot:Hide()
 
+-- The mouseover label: the focus label's look, beside the cursor while a unit is under it (not
+-- your target, which the display shows already).
+local mouseLabel = ns.Tape.Focus.New(UIParent, "GoodRangeMouseover")
+local mouseRoot = mouseLabel.root
+mouseRoot:SetFrameStrata("TOOLTIP")
+mouseRoot:Hide()
+local cursorX, cursorY
+mouseRoot:SetScript("OnUpdate", function(self)
+  if not UnitExists("mouseover") then
+    ns.RefreshShown()
+    return
+  end
+  local x, y = GetCursorPosition()
+  if x == cursorX and y == cursorY then return end
+  cursorX, cursorY = x, y
+  local scale = UIParent:GetEffectiveScale()
+  self:ClearAllPoints()
+  -- above and right of the pointer's tip, clear of the arrow
+  self:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / scale + 14, y / scale + 4)
+end)
+mouseRoot:SetScript("OnShow", function() cursorX = nil end)
+
 -- Over the focus's nameplate with the same offsets as the display (just above the display when
 -- the focus is the target too); otherwise where it was put on the screen.
 local function placeFocus()
@@ -506,6 +534,7 @@ function ns.ApplyLayout()
   ns.Tape.SetColors(not db.zones.auto and db.colors or nil)   -- on Auto, the default colours
   tape:SetLayout(db.width, db.height, db.fontSize, db.ppy, db.font, db.display, db.badgeScale / 100, db.showUnit)
   focusLabel:SetLayout(db.focusScale / 100, ns.DEFAULTS.font)
+  mouseLabel:SetLayout(db.mouseoverScale / 100, ns.DEFAULTS.font)
   ns.RefreshShown()
   place()
   placeFocus()
@@ -523,7 +552,18 @@ local acc, clock = 0, 0
 local ZONE_EVERY, ZONE_IDLE = 0.25, 2
 local zoneGen = 0
 local zoneClock, zoneSeen = 0, -1
-local focusSpans, focusHostile, focusZoneClock, focusSeen = {}, nil, 0, -1
+-- the small labels (focus, mouseover): each with its tracker and its own zones (the unit can be a
+-- friend while the target is an enemy); show: shown on its first value (the mouseover label)
+local function newLabel(tr, label, show)
+  return { tr = tr, label = label, show = show, spans = {}, clock = 0, seen = -1 }
+end
+local focusL, mouseL = newLabel(F, focusLabel), newLabel(M, mouseLabel, true)
+local function forgetLabel(L)
+  L.tr.est:reset()
+  helpable[L.tr.unit], L.hostile = nil, nil
+  ns.ForgetBracket(L.tr)
+  L.label:Clear()
+end
 
 -- One tick of a tracker: its bracket, then its estimate. dt: the time moved since the last tick,
 -- ps: your speed, px / py: your position.
@@ -543,27 +583,28 @@ local function follow(tr, hostile, dt, ps, px, py)
   return lo, hi, tr.est:valueB(lo, hi), crossed
 end
 
--- The focus: its own zones (it can be a friend while the target is an enemy) and the label.
--- dt: since the last tick, moveDt: moved since the last tick (see the driver)
-local function followFocus(dt, moveDt, ps, px, py)
-  if not UnitExists("focus") or UnitIsDeadOrGhost("focus") then return end
-  local hostile = UnitCanAttack("player", "focus")
+-- One tick of a small label: its zones now and then, its distance (the estimate; the middle of
+-- the bracket until a crossing). dt: since the last tick, moveDt: moved since then (see the driver)
+local function followLabel(L, dt, moveDt, ps, px, py)
+  local unit = L.tr.unit
+  if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
+  local hostile = UnitCanAttack("player", unit)
   if issecret(hostile) then hostile = true end
-  focusZoneClock = focusZoneClock + dt
-  if hostile ~= focusHostile
-      or focusZoneClock >= ZONE_EVERY and (focusSeen ~= zoneGen or focusZoneClock >= ZONE_IDLE) then
-    focusHostile, focusZoneClock, focusSeen = hostile, 0, zoneGen
-    focusSpans = zonesFor(hostile, "focus")
+  L.clock = L.clock + dt
+  if hostile ~= L.hostile or L.clock >= ZONE_EVERY and (L.seen ~= zoneGen or L.clock >= ZONE_IDLE) then
+    L.hostile, L.clock, L.seen = hostile, 0, zoneGen
+    L.spans = zonesFor(hostile, unit)
   end
-  local lo, hi, b = follow(F, hostile, moveDt, ps, px, py)
+  local lo, hi, b = follow(L.tr, hostile, moveDt, ps, px, py)
   if not hi and lo == 0 then
-    focusLabel:SetNoData()
-    return
+    L.label:SetNoData()
+  else
+    local d = b or lo
+    -- whole yards, "+" past the last step that answered, never wider than "99+"
+    local text = d >= 99 and "99+" or b and tostring(math.floor(b)) or math.floor(lo) .. "+"
+    L.label:Set(text, (ns.Zones.at(d, L.spans)))
   end
-  local d = b or lo
-  -- whole yards, "+" past the last step that answered, never wider than "99+"
-  local text = d >= 99 and "99+" or b and tostring(math.floor(b)) or math.floor(lo) .. "+"
-  focusLabel:Set(text, (ns.Zones.at(d, focusSpans)))
+  if L.show then L.label.root:Show() end
 end
 
 -- Standing still (see IDLE_TICK), a speed check each frame wakes the ticks as soon as one moves.
@@ -580,6 +621,7 @@ driver:SetScript("OnUpdate", function(_, elapsed)
   if acc < TICK then return end
   local wasIdle = idle
   idle = standing("player") and (not targetOn or standing("target")) and (not focusOn or standing("focus"))
+    and (not mouseOn or standing("mouseover"))
   if wasIdle and idle and acc < IDLE_TICK then return end
   local dt = acc
   acc = 0
@@ -600,7 +642,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if not issecret(m) then ps = m and Estimator.RUN or 0 end
   end
   local px, py = playerPos()
-  if focusOn then followFocus(dt, moveDt, ps, px, py) end
+  if focusOn then followLabel(focusL, dt, moveDt, ps, px, py) end
+  if mouseOn then followLabel(mouseL, dt, moveDt, ps, px, py) end
 
   local unit = "target"
   if not targetOn or not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
@@ -655,8 +698,15 @@ root:SetScript("OnUpdate", function(_, elapsed)
   tape:Draw(shown, goalLabel ~= tostring(math.floor(goal)) and goalLabel or tostring(math.floor(shown)))
 end)
 
--- Followed if living and the options allow it in this state (combat, unit kind).
--- Never friendly NPCs; friendly players in grey unless you can heal or buff them (see zonesFor).
+-- unit is other (secret: no)
+local function same(unit, other)
+  local v = UnitIsUnit(unit, other)
+  return not issecret(v) and v and true or false
+end
+
+-- Followed if living and the options allow it in this state (combat, unit kind: enemy players,
+-- enemy NPCs including critters, friendly players). Never friendly NPCs; friendly players in grey
+-- unless you can heal or buff them (see zonesFor).
 local function wanted(unit)
   local has = UnitExists(unit) and not UnitIsDeadOrGhost(unit)
   if has and db then
@@ -666,7 +716,8 @@ local function wanted(unit)
     local player = UnitIsPlayer(unit)
     if issecret(player) then player = true end
     if fighting and not db.inCombat or not fighting and not db.outOfCombat
-        or hostile and not db.enemy or not hostile and not db.friendly
+        or hostile and player and not db.enemyPlayers or hostile and not player and not db.enemyNPCs
+        or not hostile and not db.friendly
         or not hostile and not player then
       has = false
     end
@@ -678,9 +729,13 @@ function ns.RefreshShown()
   local was, wasFocus = targetOn, focusOn
   targetOn = wanted("target")
   focusOn = ns.HAS_FOCUS and db and db.focus and wanted("focus") or false
+  local wasMouse = mouseOn
+  mouseOn = db and db.mouseover and not same("mouseover", "target") and not same("mouseover", "player")
+    and wanted("mouseover") or false
+  if not mouseOn then mouseRoot:Hide() elseif not wasMouse then forgetLabel(mouseL) end
   -- a unit shown or hidden now (combat, a heal learned ...) may gain or lose its nameplate spot
   if db and db.nameplate and (was ~= targetOn or wasFocus ~= focusOn) then placeSoon() end
-  driver:SetShown(targetOn or focusOn)
+  driver:SetShown(targetOn or focusOn or mouseOn)
   root:SetShown(targetOn or (db and db.unlocked))
   -- while the settings are open the label shows (a sample without a focus) so it can be moved
   focusRoot:SetShown(focusOn or (ns.HAS_FOCUS and db and db.focus and db.unlocked) or false)
@@ -757,13 +812,38 @@ local function zoneSettings(z)
   return z
 end
 
+-- Your own zones are your class's (on Retail, your spec's): db.zonesBy[key], with db.zones the
+-- current one (not saved itself, see PLAYER_LOGOUT). nil on Retail until the game knows your spec.
+local function zoneKey()
+  if not RETAIL then return playerClass end
+  local spec = API.SpecID()
+  return spec and playerClass .. "-" .. spec
+end
+-- Points db.zones at your class's or spec's zones; true if that changed.
+function ns.UseZones()
+  local key = zoneKey()
+  local was = db.zones
+  if key then
+    -- the zones v0.8 kept for every character go to the first class (or spec) to log in
+    if db.zonesBy[key] == nil and db.zonesOld then db.zonesBy[key], db.zonesOld = db.zonesOld, nil end
+    db.zonesBy[key] = zoneSettings(db.zonesBy[key])
+    db.zones = db.zonesBy[key]
+  elseif not db.zones then
+    db.zones = zoneSettings()   -- Auto until the spec is known, not saved
+  end
+  return was ~= db.zones
+end
+
 -- Reset Defaults: where the display is (screen, badge, nameplate offsets), its sizes, font,
 -- colours and zones
 local RESET = { "width", "height", "fontSize", "ppy", "badgeScale", "font", "plateX", "plateY", "focusScale" }
 function ns.ResetDefaults()
   db.pos, db.badgePos, db.focusPos = nil, nil, nil
   db.colors = {}
-  db.zones = zoneSettings()
+  local key = zoneKey()
+  if key then db.zonesBy[key] = nil end
+  db.zones, db.zonesOld = nil, nil
+  ns.UseZones()
   for _, k in ipairs(RESET) do db[k] = ns.DEFAULTS[k] end
   ns.OnZonesChanged()
   ns.ApplyLayout()
@@ -783,7 +863,8 @@ events:RegisterEvent("PLAYER_REGEN_ENABLED")
 for _, e in ipairs({ "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
                     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_FOCUS_CHANGED",
                     "SPELL_UPDATE_USABLE", "ACTIONBAR_UPDATE_USABLE", "SPELL_UPDATE_COOLDOWN",
-                    "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD" }) do
+                    "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD", "UPDATE_MOUSEOVER_UNIT",
+                    "PLAYER_LOGOUT" }) do
   pcall(events.RegisterEvent, events, e)   -- not every client has every event
 end
 -- what you can use may have changed: the zones are checked again on the next tick (see zoneGen)
@@ -818,12 +899,18 @@ events:SetScript("OnEvent", function(_, event)
       db.meters, db.noPos = nil, nil
     end
     db.layoutVersion = 5
+    if db.enemy ~= nil then
+      -- v0.8: one switch for every enemy, now players and NPCs apart
+      db.enemyPlayers, db.enemyNPCs, db.enemy = db.enemy, db.enemy, nil
+    end
     for k, v in pairs(ns.DEFAULTS) do
       if db[k] == nil then db[k] = v end
     end
     db.ppy = math.min(40, math.max(10, db.ppy))   -- the ruler scale runs 10-40 now (was 15-100)
     db.colors = db.colors or {}   -- zone colours you picked, { kind = { r, g, b } }
-    db.zones = zoneSettings(db.zones)
+    if not db.zonesBy then db.zonesBy, db.zonesOld = {}, db.zones end   -- v0.8: one set for all
+    db.zones = nil
+    ns.UseZones()
     db.maxRange = nil   -- an unreleased test build's setting, now the zones' To
     ns.db = db
     db.unlocked = false   -- the tape is only unlocked while the settings window is open
@@ -847,14 +934,20 @@ events:SetScript("OnEvent", function(_, event)
     ns.RefreshShown()
     if db.nameplate or db.unlocked then place(); placeFocus() end
   elseif event == "PLAYER_FOCUS_CHANGED" then
-    F.est:reset()
-    helpable.focus, focusHostile = nil, nil
-    ns.ForgetBracket(F)
-    focusLabel:Clear()
+    forgetLabel(focusL)
     ns.RefreshShown()
     if db.nameplate then placeFocus() end
   elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
     ns.RefreshShown()
+  elseif event == "UPDATE_MOUSEOVER_UNIT" then
+    -- a new unit under the mouse: start over
+    if mouseOn then
+      mouseRoot:Hide()
+      forgetLabel(mouseL)
+    end
+    ns.RefreshShown()
+  elseif event == "PLAYER_LOGOUT" then
+    db.zones = nil   -- only the current class's entry in zonesBy, which is saved
   elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
     if db.nameplate then placeSoon() end
   else

@@ -350,8 +350,10 @@ local function build()
   shownWhen("In combat", "inCombat", LX - 2, ly)
   shownWhen("Out of combat", "outOfCombat", LX + COL / 2, ly)
   ly = ly - 26
-  shownWhen("Enemy target", "enemy", LX - 2, ly)
-  shownWhen("Friendly target", "friendly", LX + COL / 2, ly)
+  shownWhen("Enemy players", "enemyPlayers", LX - 2, ly)
+  shownWhen("Enemy NPCs", "enemyNPCs", LX + COL / 2, ly)
+  ly = ly - 26
+  shownWhen("Friendly players", "friendly", LX - 2, ly)
   ly = ly - 30
 
   -- left: the focus label, off by default; one look, its own size and place
@@ -367,6 +369,27 @@ local function build()
     controls[#controls + 1] = slider(page, "Scale", ly, "focusScale", 50, 200, 5, LX - 2, COL - 50)
     ly = ly - 44
   end
+
+  -- left: the mouseover label, off by default; the focus label's look, beside the cursor
+  ly = ly - 14
+  label(page, "Mouseover", LX + 2, ly)
+  local mouseSample = ns.Tape.Focus.New(page)
+  mouseSample.root:SetPoint("LEFT", page, "TOPLEFT", LX + 100, ly - 7)
+  local function showSample()
+    mouseSample:SetLayout(db.mouseoverScale / 100, ns.DEFAULTS.font)
+    mouseSample:Set("17", "primary")
+    mouseSample.root:SetShown(db.mouseover)
+  end
+  ly = ly - 18
+  controls[#controls + 1] = checkbox(page, "Range to the unit under your mouse", LX - 2, ly,
+    function() return db.mouseover end, function(v) db.mouseover = v; ns.RefreshShown(); showSample() end,
+    "A small label beside the cursor with the distance to the unit under it (in the world or on "
+      .. "a unit frame), coloured by your zones. Not for your target, which the display shows.")
+  ly = ly - 30
+  controls[#controls + 1] = slider(page, "Scale", ly, "mouseoverScale", 50, 200, 5, LX - 2, COL - 50, nil,
+    function() ns.ApplyLayout(); showSample() end)
+  controls[#controls + 1] = { Refresh = showSample }
+  ly = ly - 44
 
   -- right: sizes
   local ry = y - 42
@@ -729,6 +752,12 @@ local function build()
   page.height = -zy + 12
 
   -- the display is unlocked exactly while this window is open
+  -- your spec changed under the open window: its zones are another spec's now
+  function ns.RefreshOptions()
+    if win:IsShown() then
+      for _, c in ipairs(controls) do c:Refresh() end
+    end
+  end
   win:SetScript("OnShow", function()
     for _, c in ipairs(controls) do c:Refresh() end
     db.unlocked = true

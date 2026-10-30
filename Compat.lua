@@ -168,10 +168,16 @@ for _, id in ipairs({ 71, 72, 73, 259, 260, 261, 250, 251, 252, 66, 70, 268, 269
   103, 104, 263, 255 }) do SPEC_ROLE[id] = "melee" end
 for _, id in ipairs({ 62, 63, 64, 65, 102, 105, 253, 254, 256, 257, 258, 262, 264, 265, 266,
   267, 270, 1467, 1468, 1473, 1480 }) do SPEC_ROLE[id] = "ranged" end
-function API.SpecRole()
+-- Your specialization's ID, or nil.
+function API.SpecID()
   if not (GetSpecialization and GetSpecializationInfo) then return nil end
   local index = GetSpecialization()
-  local id = index and GetSpecializationInfo(index)
+  local id = index and not issecret(index) and GetSpecializationInfo(index)
   if not id or issecret(id) then return nil end
-  return SPEC_ROLE[id]
+  return id
+end
+
+function API.SpecRole()
+  local id = API.SpecID()
+  return id and SPEC_ROLE[id]
 end
